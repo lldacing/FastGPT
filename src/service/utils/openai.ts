@@ -1,4 +1,6 @@
-import axios from 'axios';
+import type { NextApiResponse } from 'next';
+import type { PassThrough } from 'stream';
+import { createParser, ParsedEvent, ReconnectInterval } from 'eventsource-parser';
 import { getOpenAIApi } from '@/service/utils/chat';
 import { httpsAgent } from './tools';
 import { User } from '../models/user';
@@ -10,7 +12,7 @@ import { pushGenerateVectorBill } from '../events/pushBill';
 export const getUserApiOpenai = async (userId: string) => {
   const user = await User.findById(userId);
 
-  const userApiKey = user?.accounts?.find((item: any) => item.type === 'openai')?.value;
+  const userApiKey = user?.openaiKey;
 
   if (!userApiKey) {
     return Promise.reject('缺少ApiKey, 无法请求');
@@ -33,7 +35,7 @@ export const getOpenApiKey = async (userId: string) => {
     });
   }
 
-  const userApiKey = user?.accounts?.find((item: any) => item.type === 'openai')?.value;
+  const userApiKey = user?.openaiKey;
 
   // 有自己的key
   if (userApiKey) {
@@ -75,7 +77,7 @@ export const openaiCreateEmbedding = async ({
   const chatAPI = getOpenAIApi(apiKey);
 
   // 把输入的内容转成向量
-  const vector = await chatAPI
+  const res = await chatAPI
     .createEmbedding(
       {
         model: ChatModelNameEnum.VECTOR,
@@ -83,19 +85,86 @@ export const openaiCreateEmbedding = async ({
       },
       {
         timeout: 60000,
-        httpsAgent
+        httpsAgent: httpsAgent(isPay)
       }
     )
-    .then((res) => res?.data?.data?.[0]?.embedding || []);
+    .then((res) => ({
+      tokenLen: res.data.usage.total_tokens || 0,
+      vector: res?.data?.data?.[0]?.embedding || []
+    }));
 
   pushGenerateVectorBill({
     isPay,
     userId,
-    text
+    text,
+    tokenLen: res.tokenLen
   });
 
   return {
-    vector,
+    vector: res.vector,
     chatAPI
   };
 };
+
+/* gpt35 响应 */
+export const gpt35StreamResponse = ({
+  res,
+  stream,
+  chatResponse
+}: {
+  res: NextApiResponse;
+  stream: PassThrough;
+  chatResponse: any;
+}) =>
+  new Promise<{ responseContent: string }>(async (resolve, reject) => {
+    try {
+      // 创建响应流
+      res.setHeader('Content-Type', 'text/event-stream;charset-utf-8');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+
+      let responseContent = '';
+      stream.pipe(res);
+
+      const onParse = async (event: ParsedEvent | ReconnectInterval) => {
+        if (event.type !== 'event') return;
+        const data = event.data;
+        if (data === '[DONE]') return;
+        try {
+          const json = JSON.parse(data);
+          const content: string = json?.choices?.[0].delta.content || '';
+          // console.log('content:', content);
+          if (!content || (responseContent === '' && content === '\n')) return;
+
+          responseContent += content;
+          !stream.destroyed && stream.push(content.replace(/\n/g, '<br/>'));
+        } catch (error) {
+          error;
+        }
+      };
+
+      const decoder = new TextDecoder();
+      try {
+        for await (const chunk of chatResponse.data as any) {
+          if (stream.destroyed) {
+            // 流被中断了，直接忽略后面的内容
+            break;
+          }
+          const parser = createParser(onParse);
+          parser.feed(decoder.decode(chunk));
+        }
+      } catch (error) {
+        console.log('pipe error', error);
+      }
+      // close stream
+      !stream.destroyed && stream.push(null);
+      stream.destroy();
+
+      resolve({
+        responseContent
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });

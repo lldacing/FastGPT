@@ -7,9 +7,8 @@ import type { ModelSchema } from '@/types/mongoSchema';
 /* 获取我的模型 */
 export default async function handler(req: NextApiRequest, res: NextApiResponse<any>) {
   try {
-    const { modelId, isShare = 'false' } = req.query as {
+    const { modelId } = req.query as {
       modelId: string;
-      isShare?: 'true' | 'false';
     };
     const { authorization } = req.headers;
 
@@ -26,23 +25,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     await connectToDatabase();
 
-    // 获取模型配置
+    // 校验是否为用户的模型
     const model = await Model.findOne<ModelSchema>({
       _id: modelId,
       userId
     });
 
     if (!model) {
-      throw new Error('模型不存在');
+      throw new Error('无权使用该模型');
     }
 
     // 创建 chat 数据
     const response = await Chat.create({
       userId,
       modelId,
-      expiredTime: Date.now() + model.security.expiredTime,
-      loadAmount: model.security.maxLoadAmount,
-      isShare: isShare === 'true',
       content: []
     });
 

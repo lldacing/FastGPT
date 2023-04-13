@@ -35,7 +35,7 @@ const InputDataModal = ({
   const [importing, setImporting] = useState(false);
   const { toast } = useToast();
 
-  const { register, handleSubmit } = useForm<FormData>({
+  const { register, handleSubmit, reset } = useForm<FormData>({
     defaultValues
   });
 
@@ -64,34 +64,39 @@ const InputDataModal = ({
           title: res === 0 ? '导入数据成功,需要一段时间训练' : '数据导入异常',
           status: res === 0 ? 'success' : 'warning'
         });
-        onClose();
+        reset({
+          text: '',
+          q: ''
+        });
         onSuccess();
       } catch (err) {
         console.log(err);
       }
       setImporting(false);
     },
-    [modelId, onClose, onSuccess, toast]
+    [modelId, onSuccess, reset, toast]
   );
 
   const updateData = useCallback(
     async (e: FormData) => {
       if (!e.dataId) return;
-      if (e.text === defaultValues.text && e.q === defaultValues.q) return;
 
-      await putModelDataById({
-        dataId: e.dataId,
-        text: e.text,
-        q: e.q === defaultValues.q ? '' : e.q
-      });
+      if (e.text !== defaultValues.text || e.q !== defaultValues.q) {
+        await putModelDataById({
+          dataId: e.dataId,
+          text: e.text,
+          q: e.q === defaultValues.q ? '' : e.q
+        });
+        onSuccess();
+      }
+
       toast({
         title: '修改回答成功',
         status: 'success'
       });
       onClose();
-      onSuccess();
     },
-    [defaultValues.q, onClose, onSuccess, toast]
+    [defaultValues, onClose, onSuccess, toast]
   );
 
   return (
@@ -119,7 +124,9 @@ const InputDataModal = ({
           <Box flex={2} mr={[0, 4]} mb={[4, 0]} h={['230px', '100%']}>
             <Box h={'30px'}>问题</Box>
             <Textarea
-              placeholder="相关问题，可以回车输入多个问法, 最多500字"
+              placeholder={
+                '相关问题，可以输入多个问法, 最多500字。例如：\n1. laf 是什么？\n2. laf 可以做什么？\n3. laf怎么用'
+              }
               maxLength={500}
               resize={'none'}
               h={'calc(100% - 30px)'}
@@ -131,7 +138,9 @@ const InputDataModal = ({
           <Box flex={3} h={['330px', '100%']}>
             <Box h={'30px'}>知识点</Box>
             <Textarea
-              placeholder="知识点,最多1000字"
+              placeholder={
+                '知识点，最多1000字。请保持主语的完整性，缺少主语会导致效果不佳。例如：\n1. laf是一个云函数开发平台。\n2. laf 什么都能做。\n3. 下面是使用 laf 的例子: ……'
+              }
               maxLength={1000}
               resize={'none'}
               h={'calc(100% - 30px)'}

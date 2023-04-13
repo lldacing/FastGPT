@@ -1,7 +1,6 @@
 import { connectToDatabase, Bill, User } from '../mongo';
 import { modelList, ChatModelNameEnum } from '@/constants/model';
 import { encode } from 'gpt-token-utils';
-import { formatPrice } from '@/utils/user';
 import { BillTypeEnum } from '@/constants/user';
 import type { DataType } from '@/types/data';
 
@@ -15,16 +14,16 @@ export const pushChatBill = async ({
   isPay: boolean;
   modelName: string;
   userId: string;
-  chatId: string;
+  chatId?: string;
   text: string;
 }) => {
   let billId;
 
   try {
     // 计算 token 数量
-    const tokens = encode(text);
+    const tokens = Math.floor(encode(text).length * 0.7);
 
-    console.log(`chat generate success. text len: ${text.length}. token len: ${tokens.length}`);
+    console.log(`chat generate success. text len: ${text.length}. token len: ${tokens}`);
 
     if (isPay) {
       await connectToDatabase();
@@ -33,8 +32,7 @@ export const pushChatBill = async ({
       const modelItem = modelList.find((item) => item.model === modelName);
       // 计算价格
       const unitPrice = modelItem?.price || 5;
-      const price = unitPrice * tokens.length;
-      console.log(`unit price: ${unitPrice}, price: ${formatPrice(price)}元`);
+      const price = unitPrice * tokens;
 
       try {
         // 插入 Bill 记录
@@ -44,7 +42,7 @@ export const pushChatBill = async ({
           modelName,
           chatId,
           textLen: text.length,
-          tokenLen: tokens.length,
+          tokenLen: tokens,
           price
         });
         billId = res._id;
@@ -66,11 +64,13 @@ export const pushChatBill = async ({
 export const pushSplitDataBill = async ({
   isPay,
   userId,
+  tokenLen,
   text,
   type
 }: {
   isPay: boolean;
   userId: string;
+  tokenLen: number;
   text: string;
   type: DataType;
 }) => {
@@ -79,12 +79,7 @@ export const pushSplitDataBill = async ({
   let billId;
 
   try {
-    // 计算 token 数量
-    const tokens = encode(text);
-
-    console.log(
-      `splitData generate success. text len: ${text.length}. token len: ${tokens.length}`
-    );
+    console.log(`splitData generate success. text len: ${text.length}. token len: ${tokenLen}`);
 
     if (isPay) {
       try {
@@ -92,9 +87,7 @@ export const pushSplitDataBill = async ({
         const modelItem = modelList.find((item) => item.model === ChatModelNameEnum.GPT35);
         const unitPrice = modelItem?.price || 3;
         // 计算价格
-        const price = unitPrice * tokens.length;
-
-        console.log(`price: ${formatPrice(price)}元`);
+        const price = unitPrice * tokenLen;
 
         // 插入 Bill 记录
         const res = await Bill.create({
@@ -102,7 +95,7 @@ export const pushSplitDataBill = async ({
           type,
           modelName: ChatModelNameEnum.GPT35,
           textLen: text.length,
-          tokenLen: tokens.length,
+          tokenLen,
           price
         });
         billId = res._id;
@@ -124,29 +117,27 @@ export const pushSplitDataBill = async ({
 export const pushGenerateVectorBill = async ({
   isPay,
   userId,
-  text
+  text,
+  tokenLen
 }: {
   isPay: boolean;
   userId: string;
   text: string;
+  tokenLen: number;
 }) => {
   await connectToDatabase();
 
   let billId;
 
   try {
-    // 计算 token 数量
-    const tokens = encode(text);
-
-    console.log(`vector generate success. text len: ${text.length}. token len: ${tokens.length}`);
+    console.log(`vector generate success. text len: ${text.length}. token len: ${tokenLen}`);
 
     if (isPay) {
       try {
-        const unitPrice = 1;
-        // 计算价格
-        const price = unitPrice * tokens.length;
-
-        console.log(`price: ${formatPrice(price)}元`);
+        const unitPrice = 0.4;
+        // 计算价格. 至少为1
+        let price = unitPrice * tokenLen;
+        price = price > 1 ? price : 1;
 
         // 插入 Bill 记录
         const res = await Bill.create({
@@ -154,7 +145,7 @@ export const pushGenerateVectorBill = async ({
           type: BillTypeEnum.vector,
           modelName: ChatModelNameEnum.VECTOR,
           textLen: text.length,
-          tokenLen: tokens.length,
+          tokenLen,
           price
         });
         billId = res._id;

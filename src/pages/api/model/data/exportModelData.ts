@@ -32,7 +32,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       VecModelDataIdx,
       `@modelId:{${modelId}} @userId:{${userId}}`,
       {
-        RETURN: ['q', 'text', 'rawVector'],
+        RETURN: ['q', 'text'],
         LIMIT: {
           from: 0,
           size: 10000
@@ -40,24 +40,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
     );
 
-    const data = searchRes.documents
-      .filter((item) => {
-        if (!item?.value?.rawVector) return false;
-        try {
-          JSON.parse(item.value.rawVector as string);
-          return true;
-        } catch (error) {
-          return false;
-        }
-      })
-      .map((item: any) => ({
-        prompt: item.value.q,
-        completion: item.value.text,
-        vector: JSON.parse(item.value.rawVector)
-      }));
+    const data: [string, string][] = [];
+
+    searchRes.documents.forEach((item: any) => {
+      if (item.value.q && item.value.text) {
+        data.push([item.value.q.replace(/\n/g, '\\n'), item.value.text.replace(/\n/g, '\\n')]);
+      }
+    });
 
     jsonRes(res, {
-      data: JSON.stringify(data)
+      data
     });
   } catch (err) {
     jsonRes(res, {

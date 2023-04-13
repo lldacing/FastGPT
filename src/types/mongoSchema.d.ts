@@ -1,5 +1,10 @@
 import type { ChatItemType } from './chat';
-import { ModelStatusEnum, TrainingStatusEnum, ChatModelNameEnum } from '@/constants/model';
+import {
+  ModelStatusEnum,
+  TrainingStatusEnum,
+  ChatModelNameEnum,
+  ModelVectorSearchModeEnum
+} from '@/constants/model';
 import type { DataType } from './data';
 
 export type ServiceName = 'openai';
@@ -9,7 +14,7 @@ export interface UserModelSchema {
   email: string;
   password: string;
   balance: number;
-  accounts: { type: 'openai'; value: string }[];
+  openaiKey: string;
   createTime: number;
 }
 
@@ -32,6 +37,9 @@ export interface ModelSchema {
   updateTime: number;
   trainingTimes: number;
   temperature: number;
+  search: {
+    mode: `${ModelVectorSearchModeEnum}`;
+  };
   service: {
     company: ServiceName;
     trainId: string; // 训练的模型，训练后就是训练的模型id
@@ -93,7 +101,6 @@ export interface ChatSchema {
   expiredTime: number;
   loadAmount: number;
   updateTime: Date;
-  isShare: boolean;
   content: ChatItemType[];
 }
 export interface ChatPopulate extends ChatSchema {
@@ -125,7 +132,7 @@ export interface DataSchema {
   _id: string;
   userId: string;
   name: string;
-  createTime: string;
+  createTime: Date;
   type: DataType;
 }
 
@@ -147,4 +154,12 @@ export interface DataItemSchema {
 
 export interface DataItemPopulate extends DataItemSchema {
   userId: UserModelSchema;
+}
+
+export interface OpenApiSchema {
+  _id: string;
+  userId: string;
+  createTime: Date;
+  lastUsedTime?: Date;
+  apiKey: String;
 }

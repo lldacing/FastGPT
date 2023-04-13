@@ -12,12 +12,13 @@ import {
   SliderThumb,
   SliderMark,
   Tooltip,
-  Button
+  Button,
+  Select
 } from '@chakra-ui/react';
 import { QuestionOutlineIcon } from '@chakra-ui/icons';
 import type { ModelSchema } from '@/types/mongoSchema';
 import { UseFormReturn } from 'react-hook-form';
-import { modelList } from '@/constants/model';
+import { modelList, ModelVectorSearchModeMap } from '@/constants/model';
 import { formatPrice } from '@/utils/user';
 import { useConfirm } from '@/hooks/useConfirm';
 
@@ -53,6 +54,12 @@ const ModelEditForm = ({
               })}
             ></Input>
           </Flex>
+          <Flex alignItems={'center'} mt={4}>
+            <Box flex={'0 0 80px'} w={0}>
+              modelId:
+            </Box>
+            <Box>{getValues('_id')}</Box>
+          </Flex>
         </FormControl>
         <Flex alignItems={'center'} mt={4}>
           <Box flex={'0 0 80px'} w={0}>
@@ -83,15 +90,6 @@ const ModelEditForm = ({
             删除模型
           </Button>
         </Flex>
-        {/* <FormControl mt={4}>
-          <Box mb={1}>介绍:</Box>
-          <Textarea
-            rows={5}
-            maxLength={500}
-            {...register('intro')}
-            placeholder={'模型的介绍，仅做展示，不影响模型的效果'}
-          />
-        </FormControl> */}
       </Card>
       <Card p={4}>
         <Box fontWeight={'bold'}>模型效果</Box>
@@ -137,6 +135,20 @@ const ModelEditForm = ({
             </Slider>
           </Flex>
         </FormControl>
+        {canTrain && (
+          <FormControl mt={4}>
+            <Flex alignItems={'center'}>
+              <Box flex={'0 0 70px'}>搜索模式</Box>
+              <Select {...register('search.mode', { required: '搜索模式不能为空' })}>
+                {Object.entries(ModelVectorSearchModeMap).map(([key, { text }]) => (
+                  <option key={key} value={key}>
+                    {text}
+                  </option>
+                ))}
+              </Select>
+            </Flex>
+          </FormControl>
+        )}
         <Box mt={4}>
           <Box mb={1}>系统提示词</Box>
           <Textarea
@@ -145,8 +157,8 @@ const ModelEditForm = ({
             {...register('systemPrompt')}
             placeholder={
               canTrain
-                ? '训练的模型会根据知识库内容，生成一部分系统提示词，因此在对话时需要消耗更多的 tokens。你仍可以增加一些提示词，让其效果更精确。'
-                : '模型默认的 prompt 词，通过调整该内容，可以生成一个限定范围的模型。\n\n注意，改功能会影响对话的整体朝向！'
+                ? '训练的模型会根据知识库内容，生成一部分系统提示词，因此在对话时需要消耗更多的 tokens。你可以增加提示词，让效果更符合预期。例如: \n1. 请根据知识库内容回答用户问题。\n2. 知识库是电影《铃芽之旅》的内容，根据知识库内容回答。无关问题，拒绝回复！'
+                : '模型默认的 prompt 词，通过调整该内容，可以生成一个限定范围的模型。\n注意，改功能会影响对话的整体朝向！'
             }
           />
         </Box>

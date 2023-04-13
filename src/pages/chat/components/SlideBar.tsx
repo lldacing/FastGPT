@@ -30,18 +30,16 @@ import { getToken } from '@/utils/user';
 import MyIcon from '@/components/Icon';
 import { useCopyData } from '@/utils/tools';
 import Markdown from '@/components/Markdown';
-import { shareHint } from '@/constants/common';
 import { getChatSiteId } from '@/api/chat';
 import WxConcat from '@/components/WxConcat';
+import { useMarkdown } from '@/hooks/useMarkdown';
 
 const SlideBar = ({
-  name,
   chatId,
   modelId,
   resetChat,
   onClose
 }: {
-  name?: string;
   chatId: string;
   modelId: string;
   resetChat: () => void;
@@ -55,6 +53,7 @@ const SlideBar = ({
   const [hasReady, setHasReady] = useState(false);
   const { isOpen: isOpenShare, onOpen: onOpenShare, onClose: onCloseShare } = useDisclosure();
   const { isOpen: isOpenWx, onOpen: onOpenWx, onClose: onCloseWx } = useDisclosure();
+  const { data: shareHint } = useMarkdown({ url: '/chatProblem.md' });
 
   const { isSuccess } = useQuery(['init'], getMyModels, {
     cacheTime: 5 * 60 * 1000
@@ -187,14 +186,14 @@ const SlideBar = ({
                     }}
                     fontSize={'xs'}
                     border={'1px solid transparent'}
-                    {...(item.name === name
+                    {...(item._id === modelId
                       ? {
                           borderColor: 'rgba(255,255,255,0.5)',
                           backgroundColor: 'rgba(255,255,255,0.1)'
                         }
                       : {})}
                     onClick={async () => {
-                      if (item.name === name) return;
+                      if (item._id === modelId) return;
                       router.replace(`/chat?chatId=${await getChatSiteId(item._id)}`);
                       onClose();
                     }}
@@ -281,7 +280,7 @@ const SlideBar = ({
                 mr={3}
                 onClick={async () => {
                   copyData(
-                    `${location.origin}/chat?chatId=${await getChatSiteId(modelId, true)}`,
+                    `${location.origin}/chat?chatId=${await getChatSiteId(modelId)}`,
                     '已复制分享链接'
                   );
                   onCloseShare();

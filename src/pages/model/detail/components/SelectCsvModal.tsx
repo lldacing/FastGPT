@@ -13,10 +13,14 @@ import {
 import { useToast } from '@/hooks/useToast';
 import { useSelectFile } from '@/hooks/useSelectFile';
 import { useConfirm } from '@/hooks/useConfirm';
-import { readTxtContent } from '@/utils/tools';
+import { readCsvContent } from '@/utils/file';
 import { useMutation } from '@tanstack/react-query';
-import { postModelDataJsonData } from '@/api/model';
+import { postModelDataCsvData } from '@/api/model';
 import Markdown from '@/components/Markdown';
+import { useMarkdown } from '@/hooks/useMarkdown';
+import { fileDownload } from '@/utils/file';
+
+const csvTemplate = `question,answer\n"什么是 laf","laf 是一个云函数开发平台……"\n"什么是 sealos","Sealos 是以 kubernetes 为内核的云操作系统发行版,可以……"`;
 
 const SelectJsonModal = ({
   onClose,
@@ -29,33 +33,26 @@ const SelectJsonModal = ({
 }) => {
   const [selecting, setSelecting] = useState(false);
   const { toast } = useToast();
-  const { File, onOpen } = useSelectFile({ fileType: '.json', multiple: true });
-  const [fileData, setFileData] = useState<
-    { prompt: string; completion: string; vector?: number[] }[]
-  >([]);
+  const { File, onOpen } = useSelectFile({ fileType: '.csv', multiple: false });
+  const [fileData, setFileData] = useState<string[][]>([]);
   const { openConfirm, ConfirmChild } = useConfirm({
     content: '确认导入该数据集?'
   });
 
   const onSelectFile = useCallback(
     async (e: File[]) => {
+      const file = e[0];
       setSelecting(true);
       try {
-        const jsonData = (
-          await Promise.all(e.map((item) => readTxtContent(item).then((text) => JSON.parse(text))))
-        ).flat();
-        // check 文件类型
-        for (let i = 0; i < jsonData.length; i++) {
-          if (!jsonData[i]?.prompt || !jsonData[i]?.completion) {
-            throw new Error('缺少 prompt 或 completion');
-          }
+        const { header, data } = await readCsvContent(file);
+        if (header[0] !== 'question' || header[1] !== 'answer') {
+          throw new Error('csv 文件格式有误');
         }
-
-        setFileData(jsonData);
+        setFileData(data);
       } catch (error: any) {
         console.log(error);
         toast({
-          title: error?.message || 'JSON文件格式有误',
+          title: error?.message || 'csv 文件格式有误',
           status: 'error'
         });
       }
@@ -67,11 +64,11 @@ const SelectJsonModal = ({
   const { mutate, isLoading } = useMutation({
     mutationFn: async () => {
       if (!fileData) return;
-      const res = await postModelDataJsonData(modelId, fileData);
-      console.log(res);
+      const res = await postModelDataCsvData(modelId, fileData);
       toast({
-        title: '导入数据成功,需要一段时间训练',
-        status: 'success'
+        title: `导入数据成功，最终导入: ${res || 0} 条数据。需要一段时间训练`,
+        status: 'success',
+        duration: 4000
       });
       onClose();
       onSuccess();
@@ -84,41 +81,52 @@ const SelectJsonModal = ({
     }
   });
 
+  const { data: intro } = useMarkdown({ url: '/csvSelect.md' });
+
   return (
     <Modal isOpen={true} onClose={onClose} isCentered>
       <ModalOverlay />
       <ModalContent maxW={'90vw'} position={'relative'} m={0} h={'90vh'}>
-        <ModalHeader>JSON数据集</ModalHeader>
+        <ModalHeader>csv 问答对导入</ModalHeader>
         <ModalCloseButton />
 
         <ModalBody h={'100%'} display={['block', 'flex']} fontSize={'sm'} overflowY={'auto'}>
           <Box flex={'2 0 0'} w={['100%', 0]} mr={[0, 4]} mb={[4, 0]}>
-            <Markdown
-              source={`接受一个对象数组，每个对象必须包含 prompt 和 completion 格式，可以包含vector。prompt 代表问题，completion 代表回答的内容，可以多个问题对应一个回答，vector 为 prompt 的向量，如果没有讲有系统生成。例如：
-~~~json
-[
-  {
-    "prompt":"sealos是什么?\\n介绍下sealos\\nsealos有什么用",
-    "completion":"sealos是xxxxxx"
-  },
-  {
-    "prompt":"laf是什么?",
-    "completion":"laf是xxxxxx",
-    "vector":[-0.42,-0.4314314,0.43143]
-  }
-]
-~~~`}
-            />
+            <Markdown source={intro} />
+            <Box
+              my={3}
+              cursor={'pointer'}
+              textDecoration={'underline'}
+              color={'blue.600'}
+              onClick={() =>
+                fileDownload({
+                  text: csvTemplate,
+                  type: 'text/csv',
+                  filename: 'template.csv'
+                })
+              }
+            >
+              点击下载csv模板
+            </Box>
             <Flex alignItems={'center'}>
               <Button isLoading={selecting} onClick={onOpen}>
-                选择 JSON 数据集
+                选择 csv 问答对
               </Button>
 
               <Box ml={4}>一共 {fileData.length} 组数据</Box>
             </Flex>
           </Box>
-          <Box flex={'2 0 0'} h={'100%'} overflow={'auto'} p={2} backgroundColor={'blackAlpha.50'}>
-            {JSON.stringify(fileData)}
+          <Box flex={'3 0 0'} h={'100%'} overflow={'auto'} p={2} backgroundColor={'blackAlpha.50'}>
+            {fileData.map((item, index) => (
+              <Box key={index}>
+                <Box>
+                  Q{index + 1}. {item[0]}
+                </Box>
+                <Box>
+                  A{index + 1}. {item[1]}
+                </Box>
+              </Box>
+            ))}
           </Box>
         </ModalBody>
 

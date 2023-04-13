@@ -1,72 +1,32 @@
 import React, { useCallback, useState } from 'react';
-import {
-  Card,
-  Box,
-  Flex,
-  Button,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  TableContainer,
-  Select,
-  Input,
-  IconButton,
-  useDisclosure
-} from '@chakra-ui/react';
-import { DeleteIcon } from '@chakra-ui/icons';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { Card, Box, Flex, Button, Input } from '@chakra-ui/react';
+import { useForm } from 'react-hook-form';
 import { UserUpdateParams } from '@/types/user';
-import { putUserInfo, getUserBills, getPayOrders, checkPayResult } from '@/api/user';
+import { putUserInfo } from '@/api/user';
 import { useToast } from '@/hooks/useToast';
 import { useGlobalStore } from '@/store/global';
 import { useUserStore } from '@/store/user';
 import { UserType } from '@/types/user';
-import { usePaging } from '@/hooks/usePaging';
-import type { UserBillType } from '@/types/user';
+
 import { useQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
-import { PaySchema } from '@/types/mongoSchema';
-import dayjs from 'dayjs';
-import { formatPrice } from '@/utils/user';
-import WxConcat from '@/components/WxConcat';
-import ScrollData from '@/components/ScrollData';
-import { BillTypeMap } from '@/constants/user';
 
+const PayRecordTable = dynamic(() => import('./components/PayRecordTable'));
+const BilTable = dynamic(() => import('./components/BillTable'));
 const PayModal = dynamic(() => import('./components/PayModal'));
 
 const NumberSetting = () => {
   const { userInfo, updateUserInfo, initUserInfo } = useUserStore();
   const { setLoading } = useGlobalStore();
-  const { register, handleSubmit, control } = useForm<UserUpdateParams>({
+  const { register, handleSubmit } = useForm<UserUpdateParams>({
     defaultValues: userInfo as UserType
   });
   const [showPay, setShowPay] = useState(false);
-  const { isOpen: isOpenWx, onOpen: onOpenWx, onClose: onCloseWx } = useDisclosure();
   const { toast } = useToast();
-  const {
-    fields: accounts,
-    append: appendAccount,
-    remove: removeAccount
-  } = useFieldArray({
-    control,
-    name: 'accounts'
-  });
-  const {
-    nextPage,
-    isLoadAll,
-    requesting,
-    data: bills
-  } = usePaging<UserBillType>({
-    api: getUserBills,
-    pageSize: 30
-  });
-  const [payOrders, setPayOrders] = useState<PaySchema[]>([]);
 
   const onclickSave = useCallback(
     async (data: UserUpdateParams) => {
+      if (data.openaiKey === userInfo?.openaiKey) return;
       setLoading(true);
       try {
         await putUserInfo(data);
@@ -78,54 +38,22 @@ const NumberSetting = () => {
       } catch (error) {}
       setLoading(false);
     },
-    [setLoading, toast, updateUserInfo]
+    [setLoading, toast, updateUserInfo, userInfo?.openaiKey]
   );
 
   useQuery(['init'], initUserInfo);
 
-  useQuery(['initPayOrder'], getPayOrders, {
-    onSuccess(res) {
-      setPayOrders(res);
-    }
-  });
-
-  const handleRefreshPayOrder = useCallback(
-    async (payId: string) => {
-      setLoading(true);
-
-      try {
-        const data = await checkPayResult(payId);
-        toast({
-          title: data,
-          status: 'info'
-        });
-        const res = await getPayOrders();
-        setPayOrders(res);
-      } catch (error: any) {
-        toast({
-          title: error?.message,
-          status: 'warning'
-        });
-        console.log(error);
-      }
-
-      setLoading(false);
-    },
-    [setLoading, toast]
-  );
-
   return (
     <>
+      {/* 核心信息 */}
       <Card px={6} py={4}>
         <Box fontSize={'xl'} fontWeight={'bold'}>
           账号信息
         </Box>
-        <Box mt={6}>
-          <Flex alignItems={'center'}>
-            <Box flex={'0 0 60px'}>邮箱:</Box>
-            <Box>{userInfo?.email}</Box>
-          </Flex>
-        </Box>
+        <Flex mt={6} alignItems={'center'}>
+          <Box flex={'0 0 60px'}>邮箱:</Box>
+          <Box>{userInfo?.email}</Box>
+        </Flex>
         <Box mt={6}>
           <Flex alignItems={'center'}>
             <Box flex={'0 0 60px'}>余额:</Box>
@@ -140,157 +68,28 @@ const NumberSetting = () => {
             如果填写了自己的 openai 账号，将不会计费
           </Box>
         </Box>
-      </Card>
-      <Card mt={6} px={6} py={4}>
-        <Flex mb={5} justifyContent={'space-between'}>
-          <Box fontSize={'xl'} fontWeight={'bold'}>
-            关联账号
-          </Box>
-          <Box>
-            {accounts.length === 0 && (
-              <Button
-                mr={5}
-                variant="outline"
-                onClick={() =>
-                  appendAccount({
-                    type: 'openai',
-                    value: ''
-                  })
-                }
-              >
-                新增
-              </Button>
-            )}
-            <Button onClick={handleSubmit(onclickSave)}>保存</Button>
-          </Box>
+        <Flex mt={6} alignItems={'center'}>
+          <Box flex={'0 0 85px'}>openaiKey:</Box>
+          <Input
+            {...register(`openaiKey`)}
+            maxW={'300px'}
+            placeholder={'openai账号。回车或失去焦点保存'}
+            size={'sm'}
+            onBlur={handleSubmit(onclickSave)}
+            onKeyDown={(e) => {
+              if (e.keyCode === 13) {
+                handleSubmit(onclickSave)();
+              }
+            }}
+          ></Input>
         </Flex>
-        <TableContainer>
-          <Table>
-            <Thead>
-              <Tr>
-                <Th>账号类型</Th>
-                <Th>值</Th>
-                <Th></Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {accounts.map((item, i) => (
-                <Tr key={item.id}>
-                  <Td minW={'200px'}>
-                    <Select
-                      {...register(`accounts.${i}.type`, {
-                        required: '类型不能为空'
-                      })}
-                    >
-                      <option value="openai">openai</option>
-                    </Select>
-                  </Td>
-                  <Td minW={'200px'} whiteSpace="pre-wrap" wordBreak={'break-all'}>
-                    <Input
-                      {...register(`accounts.${i}.value`, {
-                        required: '账号不能为空'
-                      })}
-                    ></Input>
-                  </Td>
-                  <Td>
-                    <IconButton
-                      aria-label="删除账号"
-                      icon={<DeleteIcon />}
-                      colorScheme={'red'}
-                      onClick={() => {
-                        removeAccount(i);
-                        handleSubmit(onclickSave)();
-                      }}
-                    />
-                  </Td>
-                </Tr>
-              ))}
-            </Tbody>
-          </Table>
-        </TableContainer>
       </Card>
-      <Card mt={6} py={4}>
-        <Flex alignItems={'flex-end'} px={6} mb={1}>
-          <Box fontSize={'xl'} fontWeight={'bold'}>
-            充值记录
-          </Box>
-          <Button onClick={onOpenWx} size={'xs'} ml={4} variant={'outline'}>
-            异常问题，wx联系
-          </Button>
-        </Flex>
-        <TableContainer maxH={'400px'} overflowY={'auto'} px={6}>
-          <Table>
-            <Thead>
-              <Tr>
-                <Th>订单号</Th>
-                <Th>时间</Th>
-                <Th>金额</Th>
-                <Th>消费</Th>
-                <Th></Th>
-              </Tr>
-            </Thead>
-            <Tbody fontSize={'sm'}>
-              {payOrders.map((item) => (
-                <Tr key={item._id}>
-                  <Td>{item.orderId}</Td>
-                  <Td>
-                    {item.createTime ? dayjs(item.createTime).format('YYYY/MM/DD HH:mm:ss') : '-'}
-                  </Td>
-                  <Td>{formatPrice(item.price)}元</Td>
-                  <Td>{item.status}</Td>
-                  <Td>
-                    {item.status === 'NOTPAY' && (
-                      <Button onClick={() => handleRefreshPayOrder(item._id)} size={'sm'}>
-                        更新
-                      </Button>
-                    )}
-                  </Td>
-                </Tr>
-              ))}
-            </Tbody>
-          </Table>
-        </TableContainer>
-      </Card>
-      <Card mt={6} py={4}>
-        <Box fontSize={'xl'} fontWeight={'bold'} px={6} mb={1}>
-          使用记录
-        </Box>
-        <ScrollData
-          maxH={'400px'}
-          px={6}
-          isLoadAll={isLoadAll}
-          requesting={requesting}
-          nextPage={nextPage}
-        >
-          <TableContainer>
-            <Table>
-              <Thead>
-                <Tr>
-                  <Th>时间</Th>
-                  <Th>类型</Th>
-                  <Th>内容长度</Th>
-                  <Th>Tokens 长度</Th>
-                  <Th>消费</Th>
-                </Tr>
-              </Thead>
-              <Tbody fontSize={'sm'}>
-                {bills.map((item) => (
-                  <Tr key={item.id}>
-                    <Td>{item.time}</Td>
-                    <Td>{BillTypeMap[item.type]}</Td>
-                    <Td>{item.textLen}</Td>
-                    <Td>{item.tokenLen}</Td>
-                    <Td>{item.price}元</Td>
-                  </Tr>
-                ))}
-              </Tbody>
-            </Table>
-          </TableContainer>
-        </ScrollData>
-      </Card>
+
+      {/* 充值记录 */}
+      <PayRecordTable />
+      {/* 账单表 */}
+      <BilTable />
       {showPay && <PayModal onClose={() => setShowPay(false)} />}
-      {/* wx 联系 */}
-      {isOpenWx && <WxConcat onClose={onCloseWx} />}
     </>
   );
 };

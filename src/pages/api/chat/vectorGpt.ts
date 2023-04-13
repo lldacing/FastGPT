@@ -1,19 +1,19 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { createParser, ParsedEvent, ReconnectInterval } from 'eventsource-parser';
 import { connectToDatabase } from '@/service/mongo';
-import { getOpenAIApi, authChat } from '@/service/utils/chat';
+import { authChat } from '@/service/utils/chat';
 import { httpsAgent, openaiChatFilter, systemPromptFilter } from '@/service/utils/tools';
 import { ChatCompletionRequestMessage, ChatCompletionRequestMessageRoleEnum } from 'openai';
 import { ChatItemType } from '@/types/chat';
 import { jsonRes } from '@/service/response';
 import type { ModelSchema } from '@/types/mongoSchema';
 import { PassThrough } from 'stream';
-import { modelList } from '@/constants/model';
+import { modelList, ModelVectorSearchModeMap, ModelVectorSearchModeEnum } from '@/constants/model';
 import { pushChatBill } from '@/service/events/pushBill';
 import { connectRedis } from '@/service/redis';
 import { VecModelDataPrefix } from '@/constants/redis';
 import { vectorToBuffer } from '@/utils/tools';
-import { openaiCreateEmbedding } from '@/service/utils/openai';
+import { openaiCreateEmbedding, gpt35StreamResponse } from '@/service/utils/openai';
+import dayjs from 'dayjs';
 
 /* 发送提示词 */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -65,14 +65,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       text: prompt.value
     });
 
+    const similarity = ModelVectorSearchModeMap[model.search.mode]?.similarity || 0.22;
     // 搜索系统提示词, 按相似度从 redis 中搜出相关的 q 和 text
     const redisData: any[] = await redis.sendCommand([
       'FT.SEARCH',
       `idx:${VecModelDataPrefix}:hash`,
       `@modelId:{${String(
         chat.modelId._id
-      )}} @vector:[VECTOR_RANGE 0.22 $blob]=>{$YIELD_DISTANCE_AS: score}`,
-      // `@modelId:{${String(chat.modelId._id)}}=>[KNN 10 @vector $blob AS score]`,
+      )}} @vector:[VECTOR_RANGE ${similarity} $blob]=>{$YIELD_DISTANCE_AS: score}`,
       'RETURN',
       '1',
       'text',
@@ -84,34 +84,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       vectorToBuffer(promptVector),
       'LIMIT',
       '0',
-      '20',
+      '30',
       'DIALECT',
       '2'
     ]);
 
+    const formatRedisPrompt: string[] = [];
     // 格式化响应值，获取 qa
-    const formatRedisPrompt = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
-      .map((i) => {
-        if (!redisData[i]) return '';
-        const text = (redisData[i][1] as string) || '';
-
-        if (!text) return '';
-
-        return text;
-      })
-      .filter((item) => item);
-
-    if (formatRedisPrompt.length === 0) {
-      throw new Error('对不起，我没有找到你的问题');
+    for (let i = 2; i < 61; i += 2) {
+      const text = redisData[i]?.[1];
+      if (text) {
+        formatRedisPrompt.push(text);
+      }
     }
 
-    // textArr 筛选，最多 3000 tokens
-    const systemPrompt = systemPromptFilter(formatRedisPrompt, 3400);
+    /* 高相似度+退出，无法匹配时直接退出 */
+    if (
+      formatRedisPrompt.length === 0 &&
+      model.search.mode === ModelVectorSearchModeEnum.hightSimilarity
+    ) {
+      return res.send('对不起，你的问题不在知识库中。');
+    }
+    /* 高相似度+无上下文，不添加额外知识 */
+    if (
+      formatRedisPrompt.length === 0 &&
+      model.search.mode === ModelVectorSearchModeEnum.noContext
+    ) {
+      prompts.unshift({
+        obj: 'SYSTEM',
+        value: model.systemPrompt
+      });
+    } else {
+      // 有匹配情况下，添加知识库内容。
+      // 系统提示词过滤，最多 2800 tokens
+      const systemPrompt = systemPromptFilter(formatRedisPrompt, 2800);
 
-    prompts.unshift({
-      obj: 'SYSTEM',
-      value: `${model.systemPrompt} 知识库内容是最新的，知识库内容为: "${systemPrompt}"`
-    });
+      prompts.unshift({
+        obj: 'SYSTEM',
+        value: `${model.systemPrompt} 用知识库内容回答，知识库内容为: "当前时间:${dayjs().format(
+          'YYYY/MM/DD HH:mm:ss'
+        )} ${systemPrompt}"`
+      });
+    }
 
     // 控制在 tokens 数量，防止超出
     const filterPrompts = openaiChatFilter(prompts, modelConstantsData.contextMaxToken);
@@ -146,55 +160,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       {
         timeout: 40000,
         responseType: 'stream',
-        httpsAgent
+        httpsAgent: httpsAgent(!userApiKey)
       }
     );
 
     console.log('api response time:', `${(Date.now() - startTime) / 1000}s`);
 
-    // 创建响应流
-    res.setHeader('Content-Type', 'text/event-stream;charset-utf-8');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
     step = 1;
 
-    let responseContent = '';
-    stream.pipe(res);
-
-    const onParse = async (event: ParsedEvent | ReconnectInterval) => {
-      if (event.type !== 'event') return;
-      const data = event.data;
-      if (data === '[DONE]') return;
-      try {
-        const json = JSON.parse(data);
-        const content: string = json?.choices?.[0].delta.content || '';
-        if (!content || (responseContent === '' && content === '\n')) return;
-
-        responseContent += content;
-        // console.log('content:', content)
-        !stream.destroyed && stream.push(content.replace(/\n/g, '<br/>'));
-      } catch (error) {
-        error;
-      }
-    };
-
-    const decoder = new TextDecoder();
-    try {
-      for await (const chunk of chatResponse.data as any) {
-        if (stream.destroyed) {
-          // 流被中断了，直接忽略后面的内容
-          break;
-        }
-        const parser = createParser(onParse);
-        parser.feed(decoder.decode(chunk));
-      }
-    } catch (error) {
-      console.log('pipe error', error);
-    }
-    // close stream
-    !stream.destroyed && stream.push(null);
-    stream.destroy();
+    const { responseContent } = await gpt35StreamResponse({
+      res,
+      stream,
+      chatResponse
+    });
 
     const promptsContent = formatPrompts.map((item) => item.content).join('');
     // 只有使用平台的 key 才计费

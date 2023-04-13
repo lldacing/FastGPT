@@ -3,9 +3,9 @@ import { jsonRes } from '@/service/response';
 import { connectToDatabase, Model } from '@/service/mongo';
 import { authToken } from '@/service/utils/tools';
 import { generateVector } from '@/service/events/generateVector';
-import { vectorToBuffer, formatVector } from '@/utils/tools';
 import { connectRedis } from '@/service/redis';
 import { VecModelDataPrefix, ModelDataStatusEnum } from '@/constants/redis';
+import { VecModelDataIdx } from '@/constants/redis';
 import { customAlphabet } from 'nanoid';
 const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz1234567890', 12);
 
@@ -13,7 +13,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   try {
     const { modelId, data } = req.body as {
       modelId: string;
-      data: { prompt: string; completion: string; vector?: number[] }[];
+      data: string[][];
     };
     const { authorization } = req.headers;
 
@@ -41,11 +41,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       throw new Error('无权操作该模型');
     }
 
+    // 去重
+    const searchRes = await Promise.allSettled(
+      data.map(async ([q, a]) => {
+        try {
+          q = q.replace(/\\n/g, '\n');
+          a = a.replace(/\\n/g, '\n');
+          const redisSearch = await redis.ft.search(VecModelDataIdx, `@q:${q} @text:${a}`, {
+            RETURN: ['q', 'text']
+          });
+          if (redisSearch.total > 0) {
+            return Promise.reject('已经存在');
+          }
+        } catch (error) {
+          error;
+        }
+        return Promise.resolve({
+          q,
+          a
+        });
+      })
+    );
+
+    const filterData = searchRes
+      .filter((item) => item.status === 'fulfilled')
+      .map<{ q: string; a: string }>((item: any) => item.value);
+
     // 插入 redis
     const insertRedisRes = await Promise.allSettled(
-      data.map((item) => {
-        const vector = item.vector;
-
+      filterData.map((item) => {
         return redis.sendCommand([
           'HMSET',
           `${VecModelDataPrefix}:${nanoid()}`,
@@ -53,15 +77,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           userId,
           'modelId',
           String(modelId),
-          ...(vector
-            ? ['vector', vectorToBuffer(formatVector(vector)), 'rawVector', JSON.stringify(vector)]
-            : []),
           'q',
-          item.prompt,
+          item.q,
           'text',
-          item.completion,
+          item.a,
           'status',
-          vector ? ModelDataStatusEnum.ready : ModelDataStatusEnum.waiting
+          ModelDataStatusEnum.waiting
         ]);
       })
     );
@@ -69,7 +90,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     generateVector();
 
     jsonRes(res, {
-      data: insertRedisRes.filter((item) => item.status === 'rejected').length
+      data: insertRedisRes.filter((item) => item.status === 'fulfilled').length
     });
   } catch (err) {
     jsonRes(res, {

@@ -1,8 +1,11 @@
+import type { NextApiRequest } from 'next';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import tunnel from 'tunnel';
 import { ChatItemType } from '@/types/chat';
 import { encode } from 'gpt-token-utils';
+import { OpenApi, User } from '../mongo';
+import { formatPrice } from '@/utils/user';
+import { ERROR_ENUM } from '../errorCode';
 
 /* 密码加密 */
 export const hashPassword = (psw: string) => {
@@ -41,34 +44,74 @@ export const authToken = (token?: string): Promise<string> => {
   });
 };
 
+/* 校验 open api key */
+export const authOpenApiKey = async (req: NextApiRequest) => {
+  const { apikey: apiKey } = req.headers;
+
+  if (!apiKey) {
+    return Promise.reject(ERROR_ENUM.unAuthorization);
+  }
+
+  try {
+    const openApi = await OpenApi.findOne({ apiKey });
+    if (!openApi) {
+      return Promise.reject(ERROR_ENUM.unAuthorization);
+    }
+    const userId = String(openApi.userId);
+
+    // 余额校验
+    const user = await User.findById(userId);
+    if (!user) {
+      return Promise.reject(ERROR_ENUM.unAuthorization);
+    }
+    if (formatPrice(user.balance) <= 0) {
+      return Promise.reject('Insufficient account balance');
+    }
+
+    // 更新使用的时间
+    await OpenApi.findByIdAndUpdate(openApi._id, {
+      lastUsedTime: new Date()
+    });
+
+    return {
+      apiKey: process.env.OPENAIKEY as string,
+      userId
+    };
+  } catch (error) {
+    return Promise.reject(error);
+  }
+};
+
 /* 代理 */
-export const httpsAgent =
-  process.env.AXIOS_PROXY_HOST && process.env.AXIOS_PROXY_PORT
-    ? tunnel.httpsOverHttp({
-        proxy: {
-          host: process.env.AXIOS_PROXY_HOST,
-          port: +process.env.AXIOS_PROXY_PORT
-        }
-      })
-    : undefined;
+export const httpsAgent = (fast: boolean) =>
+  fast ? global.httpsAgentFast : global.httpsAgentNormal;
 
 /* tokens 截断 */
 export const openaiChatFilter = (prompts: ChatItemType[], maxTokens: number) => {
+  const formatPrompts = prompts.map((item) => ({
+    obj: item.obj,
+    value: item.value
+      // .replace(/[\u3000\u3001\uff01-\uff5e\u3002]/g, ' ') // 中文标点改空格
+      .replace(/\n+/g, '\n') // 连续空行
+      .replace(/[^\S\r\n]+/g, ' ') // 连续空白内容
+      .trim()
+  }));
+
   let res: ChatItemType[] = [];
 
   let systemPrompt: ChatItemType | null = null;
 
   //  System 词保留
-  if (prompts[0]?.obj === 'SYSTEM') {
-    systemPrompt = prompts.shift() as ChatItemType;
-    maxTokens -= encode(prompts[0].value).length;
+  if (formatPrompts[0]?.obj === 'SYSTEM') {
+    systemPrompt = formatPrompts.shift() as ChatItemType;
+    maxTokens -= encode(formatPrompts[0].value).length;
   }
 
   // 从后往前截取
-  for (let i = prompts.length - 1; i >= 0; i--) {
-    const tokens = encode(prompts[i].value).length;
+  for (let i = formatPrompts.length - 1; i >= 0; i--) {
+    const tokens = encode(formatPrompts[i].value).length;
     if (maxTokens >= tokens) {
-      res.unshift(prompts[i]);
+      res.unshift(formatPrompts[i]);
       maxTokens -= tokens;
     } else {
       break;
@@ -93,5 +136,5 @@ export const systemPromptFilter = (prompts: string[], maxTokens: number) => {
     }
   }
 
-  return splitText;
+  return splitText.slice(0, splitText.length - 1);
 };

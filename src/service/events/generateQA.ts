@@ -40,7 +40,8 @@ export async function generateQA(next = false): Promise<any> {
     const textList: string[] = dataItem.textList.slice(-5);
 
     // 获取 openapi Key
-    let userApiKey, systemKey;
+    let userApiKey = '',
+      systemKey = '';
     try {
       const key = await getOpenApiKey(dataItem.userId);
       userApiKey = key.userApiKey;
@@ -90,13 +91,25 @@ export async function generateQA(next = false): Promise<any> {
             },
             {
               timeout: 180000,
-              httpsAgent
+              httpsAgent: httpsAgent(!userApiKey)
             }
           )
-          .then((res) => ({
-            rawContent: res?.data.choices[0].message?.content || '', // chatgpt原本的回复
-            result: splitText(res?.data.choices[0].message?.content || '') // 格式化后的QA对
-          }))
+          .then((res) => {
+            const rawContent = res?.data.choices[0].message?.content || ''; // chatgpt 原本的回复
+            const result = splitText(res?.data.choices[0].message?.content || ''); // 格式化后的QA对
+            // 计费
+            pushSplitDataBill({
+              isPay: !userApiKey && result.length > 0,
+              userId: dataItem.userId,
+              type: 'QA',
+              text: systemPrompt.content + text + rawContent,
+              tokenLen: res.data.usage?.total_tokens || 0
+            });
+            return {
+              rawContent,
+              result
+            };
+          })
       )
     );
 
@@ -140,17 +153,6 @@ export async function generateQA(next = false): Promise<any> {
       'QA数量：',
       resultList.length
     );
-
-    // 计费
-    pushSplitDataBill({
-      isPay: !userApiKey && resultList.length > 0,
-      userId: dataItem.userId,
-      type: 'QA',
-      text:
-        systemPrompt.content +
-        textList.join('') +
-        successResponse.map((item) => item.rawContent).join('')
-    });
 
     generateQA(true);
     generateVector();

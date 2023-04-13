@@ -14,15 +14,12 @@ import {
 } from '@chakra-ui/react';
 import { useToast } from '@/hooks/useToast';
 import { useSelectFile } from '@/hooks/useSelectFile';
-import { customAlphabet } from 'nanoid';
 import { encode } from 'gpt-token-utils';
 import { useConfirm } from '@/hooks/useConfirm';
-import { readTxtContent, readPdfContent, readDocContent } from '@/utils/tools';
+import { readTxtContent, readPdfContent, readDocContent } from '@/utils/file';
 import { useMutation } from '@tanstack/react-query';
 import { postModelDataSplitData } from '@/api/model';
 import { formatPrice } from '@/utils/user';
-
-const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz1234567890', 12);
 
 const fileExtension = '.txt,.doc,.docx,.pdf,.md';
 
@@ -130,7 +127,7 @@ const SelectFileModal = ({
             tokens，账号余额不足时，未拆分的数据会被删除。
           </Box>
           <Box mt={2}>
-            一共 {encode(fileText).length} 个tokens，大约 {formatPrice(encode(fileText).length * 4)}
+            一共 {encode(fileText).length} 个tokens，大约 {formatPrice(encode(fileText).length * 3)}
             元
           </Box>
           <Flex w={'100%'} alignItems={'center'} my={4}>

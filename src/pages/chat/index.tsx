@@ -1,13 +1,7 @@
 import React, { useCallback, useState, useRef, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Image from 'next/image';
-import {
-  getInitChatSiteInfo,
-  getChatSiteId,
-  postGPT3SendPrompt,
-  delChatRecordByIndex,
-  postSaveChat
-} from '@/api/chat';
+import { getInitChatSiteInfo, getChatSiteId, delChatRecordByIndex, postSaveChat } from '@/api/chat';
 import type { InitChatResponse } from '@/api/response/chat';
 import { ChatSiteItemType } from '@/types/chat';
 import {
@@ -33,12 +27,11 @@ import { useGlobalStore } from '@/store/global';
 import { useChatStore } from '@/store/chat';
 import { useCopyData } from '@/utils/tools';
 import { streamFetch } from '@/api/fetch';
-import SlideBar from './components/SlideBar';
-import Empty from './components/Empty';
 import Icon from '@/components/Icon';
-import { encode } from 'gpt-token-utils';
 import { modelList } from '@/constants/model';
 
+const SlideBar = dynamic(() => import('./components/SlideBar'));
+const Empty = dynamic(() => import('./components/Empty'));
 const Markdown = dynamic(() => import('@/components/Markdown'));
 
 const textareaMinH = '22px';
@@ -48,10 +41,12 @@ interface ChatType extends InitChatResponse {
 }
 
 const Chat = ({ chatId }: { chatId: string }) => {
-  const { toast } = useToast();
-  const router = useRouter();
   const ChatBox = useRef<HTMLDivElement>(null);
   const TextareaDom = useRef<HTMLTextAreaElement>(null);
+
+  const { toast } = useToast();
+  const router = useRouter();
+
   // 中断请求
   const controller = useRef(new AbortController());
   const [chatData, setChatData] = useState<ChatType>({
@@ -70,11 +65,11 @@ const Chat = ({ chatId }: { chatId: string }) => {
     () => chatData.history[chatData.history.length - 1]?.status === 'loading',
     [chatData.history]
   );
+  const { isOpen: isOpenSlider, onClose: onCloseSlider, onOpen: onOpenSlider } = useDisclosure();
+
   const { copyData } = useCopyData();
   const { isPc, media } = useScreen();
   const { setLoading } = useGlobalStore();
-
-  const { isOpen: isOpenSlider, onClose: onCloseSlider, onOpen: onOpenSlider } = useDisclosure();
   const { pushChatHistory } = useChatStore();
 
   // 滚动到底部
@@ -119,9 +114,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
     async (prompts: ChatSiteItemType) => {
       const urlMap: Record<string, string> = {
         [ChatModelNameEnum.GPT35]: '/api/chat/chatGpt',
-        [ChatModelNameEnum.VECTOR_GPT]: '/api/chat/vectorGpt',
-        // [ChatModelNameEnum.VECTOR_GPT]: '/api/chat/lafGpt',
-        [ChatModelNameEnum.GPT3]: '/api/chat/gpt3'
+        [ChatModelNameEnum.VECTOR_GPT]: '/api/chat/vectorGpt'
       };
 
       if (!urlMap[chatData.modelName]) return Promise.reject('找不到模型');
@@ -212,12 +205,11 @@ const Chat = ({ chatId }: { chatId: string }) => {
     }
 
     // 长度校验
-    const tokens = encode(val).length;
     const model = modelList.find((item) => item.model === chatData.modelName);
 
-    if (model && tokens >= model.maxToken) {
+    if (model && val.length >= model.maxToken) {
       toast({
-        title: '单次输入超出 4000 tokens',
+        title: '单次输入超出 4000 字符',
         status: 'warning'
       });
       return;
@@ -307,21 +299,12 @@ const Chat = ({ chatId }: { chatId: string }) => {
 
   // 复制内容
   const onclickCopy = useCallback(
-    (chatId: string) => {
-      const dom = document.getElementById(chatId);
-      const innerText = dom?.innerText;
-      innerText && copyData(innerText);
+    (value: string) => {
+      const val = value.replace(/\n+/g, '\n');
+      copyData(val);
     },
     [copyData]
   );
-
-  useEffect(() => {
-    controller.current = new AbortController();
-    return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      controller.current?.abort();
-    };
-  }, [chatId]);
 
   // 初始化聊天框
   useQuery(
@@ -352,6 +335,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
           isClosable: true,
           duration: 5000
         });
+        router.push('/model/list');
       },
       onSettled() {
         setLoading(false);
@@ -359,6 +343,14 @@ const Chat = ({ chatId }: { chatId: string }) => {
     }
   );
 
+  // 更新流中断对象
+  useEffect(() => {
+    controller.current = new AbortController();
+    return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      controller.current?.abort();
+    };
+  }, [chatId]);
   return (
     <Flex
       h={'100%'}
@@ -369,7 +361,6 @@ const Chat = ({ chatId }: { chatId: string }) => {
         <Box flex={'0 0 250px'} w={0} h={'100%'}>
           <SlideBar
             resetChat={resetChat}
-            name={chatData?.name}
             chatId={chatId}
             modelId={chatData.modelId}
             onClose={onCloseSlider}
@@ -401,7 +392,6 @@ const Chat = ({ chatId }: { chatId: string }) => {
             <DrawerContent maxWidth={'250px'}>
               <SlideBar
                 resetChat={resetChat}
-                name={chatData?.name}
                 chatId={chatId}
                 modelId={chatData.modelId}
                 onClose={onCloseSlider}
@@ -440,7 +430,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
                     />
                   </MenuButton>
                   <MenuList fontSize={'sm'}>
-                    <MenuItem onClick={() => onclickCopy(`chat${index}`)}>复制</MenuItem>
+                    <MenuItem onClick={() => onclickCopy(item.value)}>复制</MenuItem>
                     <MenuItem onClick={() => delChatRecord(index)}>删除该行</MenuItem>
                   </MenuList>
                 </Menu>
@@ -520,11 +510,11 @@ const Chat = ({ chatId }: { chatId: string }) => {
               onClick={sendPrompt}
             >
               {isChatting ? (
-                <Image
+                <Icon
                   style={{ transform: 'translateY(4px)' }}
-                  src={'/icon/chatting.svg'}
-                  fill
-                  alt={''}
+                  h={'30px'}
+                  w={'30px'}
+                  name={'chatting'}
                 />
               ) : (
                 <Icon
@@ -546,7 +536,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
 export default Chat;
 
 export async function getServerSideProps(context: any) {
-  const chatId = context.query?.chatId || '';
+  const chatId = context?.query?.chatId || 'noid';
 
   return {
     props: { chatId }
