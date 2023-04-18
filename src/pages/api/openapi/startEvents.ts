@@ -1,14 +1,15 @@
+// Next.js API route support: https://nextjs.org/docs/api-routes/introduction
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { jsonRes } from '@/service/response';
-import axios from 'axios';
-import { connectToDatabase, User, Pay } from '@/service/mongo';
-import { authToken } from '@/service/utils/tools';
-import { PaySchema } from '@/types/mongoSchema';
-import dayjs from 'dayjs';
+import { generateQA } from '@/service/events/generateQA';
+import { generateVector } from '@/service/events/generateVector';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    res.send('');
+    generateQA();
+    generateVector();
+
+    jsonRes(res);
   } catch (err) {
     jsonRes(res, {
       code: 500,

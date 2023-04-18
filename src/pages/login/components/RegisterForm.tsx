@@ -7,6 +7,7 @@ import { useSendCode } from '@/hooks/useSendCode';
 import type { ResLogin } from '@/api/response/user';
 import { useScreen } from '@/hooks/useScreen';
 import { useToast } from '@/hooks/useToast';
+import { useRouter } from 'next/router';
 
 interface Props {
   loginSuccess: (e: ResLogin) => void;
@@ -14,13 +15,14 @@ interface Props {
 }
 
 interface RegisterType {
-  email: string;
+  phone: string;
   password: string;
   password2: string;
   code: string;
 }
 
 const RegisterForm = ({ setPageType, loginSuccess }: Props) => {
+  const { inviterId = '' } = useRouter().query as { inviterId: string };
   const { toast } = useToast();
   const { mediaLgMd } = useScreen();
   const {
@@ -36,10 +38,10 @@ const RegisterForm = ({ setPageType, loginSuccess }: Props) => {
   const { codeSending, sendCodeText, sendCode, codeCountDown } = useSendCode();
 
   const onclickSendCode = useCallback(async () => {
-    const check = await trigger('email');
+    const check = await trigger('phone');
     if (!check) return;
     sendCode({
-      email: getValues('email'),
+      username: getValues('phone'),
       type: 'register'
     });
   }, [getValues, sendCode, trigger]);
@@ -47,14 +49,15 @@ const RegisterForm = ({ setPageType, loginSuccess }: Props) => {
   const [requesting, setRequesting] = useState(false);
 
   const onclickRegister = useCallback(
-    async ({ email, password, code }: RegisterType) => {
+    async ({ phone, password, code }: RegisterType) => {
       setRequesting(true);
       try {
         loginSuccess(
           await postRegister({
-            email,
+            phone,
             code,
-            password
+            password,
+            inviterId
           })
         );
         toast({
@@ -69,7 +72,7 @@ const RegisterForm = ({ setPageType, loginSuccess }: Props) => {
       }
       setRequesting(false);
     },
-    [loginSuccess, toast]
+    [inviterId, loginSuccess, toast]
   );
 
   return (
@@ -78,23 +81,23 @@ const RegisterForm = ({ setPageType, loginSuccess }: Props) => {
         注册 FastGPT 账号
       </Box>
       <form onSubmit={handleSubmit(onclickRegister)}>
-        <FormControl mt={8} isInvalid={!!errors.email}>
+        <FormControl mt={8} isInvalid={!!errors.phone}>
           <Input
-            placeholder="邮箱"
+            placeholder="手机号"
             size={mediaLgMd}
-            {...register('email', {
-              required: '邮箱不能为空',
+            {...register('phone', {
+              required: '手机号不能为空',
               pattern: {
-                value: /^[A-Za-z0-9]+([_\.][A-Za-z0-9]+)*@([A-Za-z0-9\-]+\.)+[A-Za-z]{2,6}$/,
-                message: '邮箱错误'
+                value: /^1[3456789]\d{9}$/,
+                message: '手机号格式错误'
               }
             })}
           ></Input>
           <FormErrorMessage position={'absolute'} fontSize="xs">
-            {!!errors.email && errors.email.message}
+            {!!errors.phone && errors.phone.message}
           </FormErrorMessage>
         </FormControl>
-        <FormControl mt={8} isInvalid={!!errors.email}>
+        <FormControl mt={8} isInvalid={!!errors.phone}>
           <Flex>
             <Input
               flex={1}

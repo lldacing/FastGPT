@@ -3,7 +3,8 @@ import { hashPassword } from '@/service/utils/tools';
 import { PRICE_SCALE } from '@/constants/common';
 import { UserModelSchema } from '@/types/mongoSchema';
 const UserSchema = new Schema({
-  email: {
+  username: {
+    // 可以是手机/邮箱，新的验证都只用手机
     type: String,
     required: true,
     unique: true // 唯一
@@ -16,26 +17,31 @@ const UserSchema = new Schema({
     select: false
   },
   balance: {
+    // 平台余额，不可提现
     type: Number,
     default: 0.5 * PRICE_SCALE
+  },
+  inviterId: {
+    // 谁邀请注册的
+    type: Schema.Types.ObjectId,
+    ref: 'user'
+  },
+  promotion: {
+    rate: {
+      // 返现比例
+      type: Number,
+      default: 15
+    },
+    amount: {
+      // 推广金额
+      type: Number,
+      default: 0
+    }
   },
   openaiKey: {
     type: String,
     default: ''
   },
-  accounts: [
-    {
-      type: {
-        type: String,
-        required: true,
-        enum: ['openai'] // 定义允许的type
-      },
-      value: {
-        type: String,
-        required: true
-      }
-    }
-  ],
   createTime: {
     type: Date,
     default: () => new Date()
