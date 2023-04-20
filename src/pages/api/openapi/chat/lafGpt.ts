@@ -7,12 +7,15 @@ import { ChatCompletionRequestMessage, ChatCompletionRequestMessageRoleEnum } fr
 import { ChatItemType } from '@/types/chat';
 import { jsonRes } from '@/service/response';
 import { PassThrough } from 'stream';
-import { ChatModelNameEnum, modelList, ChatModelNameMap } from '@/constants/model';
+import {
+  ChatModelNameEnum,
+  modelList,
+  ChatModelNameMap,
+  ModelVectorSearchModeMap
+} from '@/constants/model';
 import { pushChatBill } from '@/service/events/pushBill';
-import { connectRedis } from '@/service/redis';
-import { VecModelDataPrefix } from '@/constants/redis';
-import { vectorToBuffer } from '@/utils/tools';
 import { openaiCreateEmbedding, gpt35StreamResponse } from '@/service/utils/openai';
+import { PgClient } from '@/service/pg';
 
 /* 发送提示词 */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -46,7 +49,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     await connectToDatabase();
-    const redis = await connectRedis();
     let startTime = Date.now();
 
     /* 凭证校验 */
@@ -79,15 +81,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         messages: [
           {
             role: 'system',
-            content: `服务端逻辑生成器.根据用户输入的需求,拆解成代码实现的步骤,并按格式返回: 1.\n2.\n3.\n ......
+            content: `服务端逻辑生成器.根据用户输入的需求,拆解成 laf 云函数实现的步骤,只返回步骤,按格式返回步骤: 1.\n2.\n3.\n ......
 下面是一些例子:
+一个 hello world 例子
+1. 返回字符串: "hello world"
+
+计算圆的面积
+1. 从 body 中获取半径 radius.
+2. 校验 radius 是否为有效的数字.
+3. 计算圆的面积.
+4. 返回圆的面积: {area} 
+
 实现一个手机号发生注册验证码方法.
 1. 从 query 中获取 phone.
 2. 校验手机号格式是否正确,不正确则返回错误原因:手机号格式错误.
 3. 给 phone 发送一个短信验证码,验证码长度为6位字符串,内容为:你正在注册laf,验证码为:code.
 4. 数据库添加数据,表为"codes",内容为 {phone, code}.
 
-实现根据手机号注册账号,需要验证手机验证码.
+实现一个云函数，使用手机号注册账号,需要验证手机验证码.
 1. 从 body 中获取 phone 和 code.
 2. 校验手机号格式是否正确,不正确则返回错误原因:手机号格式错误.
 2. 获取数据库数据,表为"codes",查找是否有符合 phone, code 等于body参数的记录,没有的话返回错误原因:验证码不正确.
@@ -135,39 +146,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 读取对话内容
     const prompts = [prompt];
 
-    // 搜索系统提示词, 按相似度从 redis 中搜出相关的 q 和 text
-    const redisData: any[] = await redis.sendCommand([
-      'FT.SEARCH',
-      `idx:${VecModelDataPrefix}:hash`,
-      `@modelId:{${String(model._id)}}=>[KNN 20 @vector $blob AS score]`,
-      'RETURN',
-      '1',
-      'text',
-      'SORTBY',
-      'score',
-      'PARAMS',
-      '2',
-      'blob',
-      vectorToBuffer(promptVector),
-      'DIALECT',
-      '2'
-    ]);
+    // 相似度搜索
+    const similarity = ModelVectorSearchModeMap[model.search.mode]?.similarity || 0.22;
+    const vectorSearch = await PgClient.select<{ id: string; q: string; a: string }>('modelData', {
+      fields: ['id', 'q', 'a'],
+      order: [{ field: 'vector', mode: `<=> '[${promptVector}]'` }],
+      where: [
+        ['model_id', model._id],
+        'AND',
+        ['user_id', userId],
+        'AND',
+        `vector <=> '[${promptVector}]' < ${similarity}`
+      ],
+      limit: 30
+    });
 
-    // 格式化响应值，获取 qa
-    const formatRedisPrompt: string[] = [];
-    for (let i = 2; i < 42; i += 2) {
-      const text = redisData[i]?.[1];
-      if (text) {
-        formatRedisPrompt.push(text);
-      }
-    }
+    const formatRedisPrompt: string[] = vectorSearch.rows.map((item) => `${item.q}\n${item.a}`);
 
-    // textArr 筛选，最多 3000 tokens
-    const systemPrompt = systemPromptFilter(formatRedisPrompt, 3000);
+    // textArr 筛选，最多 2500 tokens
+    const systemPrompt = systemPromptFilter(formatRedisPrompt, 2500);
 
     prompts.unshift({
       obj: 'SYSTEM',
-      value: `${model.systemPrompt} 知识库内容是最新的，知识库内容为: "${systemPrompt}"`
+      value: `${model.systemPrompt} 知识库是最新的,下面是知识库内容:${systemPrompt}`
     });
 
     // 控制在 tokens 数量，防止超出

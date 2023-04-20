@@ -2,8 +2,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { jsonRes } from '@/service/response';
 import { connectToDatabase } from '@/service/mongo';
 import { authToken } from '@/service/utils/tools';
-import { connectRedis } from '@/service/redis';
-import { VecModelDataIdx } from '@/constants/redis';
+import { PgClient } from '@/service/pg';
+import type { PgModelDataItemType } from '@/types/pg';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<any>) {
   try {
@@ -35,34 +35,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const userId = await authToken(authorization);
 
     await connectToDatabase();
-    const redis = await connectRedis();
 
-    // 从 redis 中获取数据
-    const searchRes = await redis.ft.search(
-      VecModelDataIdx,
-      `@modelId:{${modelId}} @userId:{${userId}} ${searchText ? `*${searchText}*` : ''}`,
-      {
-        RETURN: ['q', 'text', 'status'],
-        LIMIT: {
-          from: (pageNum - 1) * pageSize,
-          size: pageSize
-        },
-        SORTBY: {
-          BY: 'modelId',
-          DIRECTION: 'DESC'
-        }
-      }
-    );
+    const searchRes = await PgClient.select<PgModelDataItemType>('modelData', {
+      fields: ['id', 'q', 'a', 'status'],
+      where: [['user_id', userId], 'AND', ['model_id', modelId]],
+      order: [{ field: 'id', mode: 'DESC' }],
+      limit: pageSize,
+      offset: pageSize * (pageNum - 1)
+    });
 
     jsonRes(res, {
       data: {
         pageNum,
         pageSize,
-        data: searchRes.documents.map((item) => ({
-          id: item.id,
-          ...item.value
-        })),
-        total: searchRes.total
+        data: searchRes.rows,
+        total: await PgClient.count('modelData', {
+          where: [['user_id', userId], 'AND', ['model_id', modelId]]
+        })
       }
     });
   } catch (err) {

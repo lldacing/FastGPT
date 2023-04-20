@@ -6,11 +6,9 @@ import type { ChatCompletionRequestMessage } from 'openai';
 import { ChatModelNameEnum } from '@/constants/model';
 import { pushSplitDataBill } from '@/service/events/pushBill';
 import { generateVector } from './generateVector';
-import { connectRedis } from '../redis';
-import { VecModelDataPrefix } from '@/constants/redis';
-import { customAlphabet } from 'nanoid';
+import { openaiError2 } from '../errorCode';
+import { PgClient } from '@/service/pg';
 import { ModelSplitDataSchema } from '@/types/mongoSchema';
-const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz1234567890', 12);
 
 export async function generateQA(next = false): Promise<any> {
   if (process.env.queueTask !== '1') {
@@ -24,7 +22,6 @@ export async function generateQA(next = false): Promise<any> {
   let dataId = null;
 
   try {
-    const redis = await connectRedis();
     // 找出一个需要生成的 dataItem
     const data = await SplitData.aggregate([
       { $match: { textList: { $exists: true, $ne: [] } } },
@@ -102,6 +99,7 @@ export async function generateQA(next = false): Promise<any> {
           .then((res) => {
             const rawContent = res?.data.choices[0].message?.content || ''; // chatgpt 原本的回复
             const result = splitText(res?.data.choices[0].message?.content || ''); // 格式化后的QA对
+            console.log(`split result length: `, result.length);
             // 计费
             pushSplitDataBill({
               isPay: !userApiKey && result.length > 0,
@@ -114,6 +112,10 @@ export async function generateQA(next = false): Promise<any> {
               rawContent,
               result
             };
+          })
+          .catch((err) => {
+            console.log('QA 拆分错误', err);
+            return Promise.reject(err);
           })
       )
     );
@@ -133,31 +135,18 @@ export async function generateQA(next = false): Promise<any> {
       SplitData.findByIdAndUpdate(dataItem._id, {
         textList: dataItem.textList.slice(0, -5)
       }), // 删掉后5个数据
-      ...resultList.map((item) => {
-        // 插入 redis
-        return redis.sendCommand([
-          'HMSET',
-          `${VecModelDataPrefix}:${nanoid()}`,
-          'userId',
-          String(dataItem.userId),
-          'modelId',
-          String(dataItem.modelId),
-          'q',
-          item.q,
-          'text',
-          item.a,
-          'status',
-          'waiting'
-        ]);
+      // 生成的内容插入 pg
+      PgClient.insert('modelData', {
+        values: resultList.map((item) => [
+          { key: 'user_id', value: dataItem.userId },
+          { key: 'model_id', value: dataItem.modelId },
+          { key: 'q', value: item.q },
+          { key: 'a', value: item.a },
+          { key: 'status', value: 'waiting' }
+        ])
       })
     ]);
-
-    console.log(
-      '生成QA成功，time:',
-      `${(Date.now() - startTime) / 1000}s`,
-      'QA数量：',
-      resultList.length
-    );
+    console.log('生成QA成功，time:', `${(Date.now() - startTime) / 1000}s`);
 
     generateQA(true);
     generateVector();
@@ -171,12 +160,8 @@ export async function generateQA(next = false): Promise<any> {
     }
 
     // 没有余额或者凭证错误时，拒绝任务
-    if (
-      dataId &&
-      (+error.response?.status === 401 ||
-        error?.response?.data?.error?.type === 'insufficient_quota')
-    ) {
-      console.log('api 异常，删除QA任务');
+    if (dataId && openaiError2[error?.response?.data?.error?.type]) {
+      console.log(openaiError2[error?.response?.data?.error?.type], '删除QA任务');
 
       await SplitData.findByIdAndUpdate(dataId, {
         textList: [],

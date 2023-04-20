@@ -12,16 +12,16 @@ export async function connectToDatabase(): Promise<void> {
   }
 
   global.mongodb = 'connecting';
-  console.log('connect mongo');
   try {
     mongoose.set('strictQuery', true);
     global.mongodb = await mongoose.connect(process.env.MONGODB_URI as string, {
       bufferCommands: true,
-      dbName: process.env.NODE_ENV === 'development' ? 'doc_gpt_test' : 'doc_gpt',
+      dbName: process.env.MONGODB_NAME,
       maxPoolSize: 5,
       minPoolSize: 1,
       maxConnecting: 5
     });
+    console.log('mongo connected');
   } catch (error) {
     console.log('error->', 'mongo connect error');
     global.mongodb = null;
