@@ -1,7 +1,7 @@
-import React, { useCallback, useState, useRef, useMemo, useEffect } from 'react';
+import React, {useCallback, useState, useRef, useMemo, useEffect, useLayoutEffect} from 'react';
 import { useRouter } from 'next/router';
 import Image from 'next/image';
-import { getInitChatSiteInfo, getChatSiteId, delChatRecordByIndex, postSaveChat } from '@/api/chat';
+import {getInitChatSiteInfo, getChatSiteId, delChatRecordByIndex, postSaveChat, getChatRooms} from '@/api/chat';
 import type { InitChatResponse } from '@/api/response/chat';
 import { ChatSiteItemType } from '@/types/chat';
 import {
@@ -70,18 +70,41 @@ const Chat = ({ chatId }: { chatId: string }) => {
   const { copyData } = useCopyData();
   const { isPc, media } = useScreen();
   const { setLoading } = useGlobalStore();
-  const { pushChatHistory } = useChatStore();
+  const { pushChatHistory, initChatHistory } = useChatStore();
+
+  useLayoutEffect(()=>{
+    getChatRooms().then(data => initChatHistory(data));
+  }, []);
 
   // 滚动到底部
   const scrollToBottom = useCallback(() => {
-    setTimeout(() => {
       ChatBox.current &&
         ChatBox.current.scrollTo({
           top: ChatBox.current.scrollHeight,
-          behavior: 'smooth'
+          behavior: 'auto'
         });
-    }, 100);
   }, []);
+
+  // 检查是否需要滚动到底部的函数
+  const shouldScrollToBottom = useCallback(() => {
+    const div = ChatBox.current;
+    if (!div) {
+      return false;
+    }
+    return (
+        div.scrollHeight - div.scrollTop === div.clientHeight // 滚动条已经在底部
+    );
+  }, []);
+
+  useEffect(() => {
+    // 在组件挂载时，将滚动条滚动到底部
+    scrollToBottom();
+
+    // 在组件更新时，检查是否需要将滚动条滚动到底部
+    if (!shouldScrollToBottom()) {
+      scrollToBottom();
+    }
+  }, [chatData.history]);
 
   // 重置输入内容
   const resetInputVal = useCallback((val: string) => {

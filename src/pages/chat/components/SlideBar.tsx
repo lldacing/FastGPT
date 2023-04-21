@@ -30,7 +30,7 @@ import { getToken } from '@/utils/user';
 import MyIcon from '@/components/Icon';
 import { useCopyData } from '@/utils/tools';
 import Markdown from '@/components/Markdown';
-import { getChatSiteId } from '@/api/chat';
+import {getChatSiteId, deleteChatRoom} from '@/api/chat';
 import WxConcat from '@/components/WxConcat';
 import { useMarkdown } from '@/hooks/useMarkdown';
 
@@ -54,7 +54,6 @@ const SlideBar = ({
   const { isOpen: isOpenShare, onOpen: onOpenShare, onClose: onCloseShare } = useDisclosure();
   const { isOpen: isOpenWx, onOpen: onOpenWx, onClose: onCloseWx } = useDisclosure();
   const { data: shareHint } = useMarkdown({ url: '/chatProblem.md' });
-
   const { isSuccess } = useQuery(['init'], getMyModels, {
     cacheTime: 5 * 60 * 1000
   });
@@ -62,10 +61,12 @@ const SlideBar = ({
   useEffect(() => {
     setHasReady(true);
   }, []);
+  // const { data, error, isLoading } = useQuery(["historyItems"], getRooms);
+  // console.log(data);
 
   const RenderHistory = () => (
     <>
-      {chatHistory.map((item) => (
+      {chatHistory?.map((item) => (
         <Flex
           key={item.chatId}
           alignItems={'center'}
@@ -101,7 +102,9 @@ const SlideBar = ({
               aria-label={'edit'}
               size={'xs'}
               onClick={(e) => {
-                removeChatHistoryByWindowId(item.chatId);
+                deleteChatRoom(item.chatId).then((res) => {
+                  removeChatHistoryByWindowId(item.chatId);
+                });
                 if (item.chatId === chatId) {
                   resetChat();
                 }

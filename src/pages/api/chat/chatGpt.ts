@@ -49,8 +49,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       throw new Error('模型加载异常');
     }
 
+    // 控制在 tokens 数量，防止超出
+    const filterPrompts = openaiChatFilter(chat.content, modelConstantsData.contextMaxToken);
+
     // 读取对话内容
-    const prompts = [...chat.content, prompt];
+    const prompts = [...filterPrompts, prompt];
 
     // 如果有系统提示词，自动插入
     if (model.systemPrompt) {
@@ -59,9 +62,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         value: model.systemPrompt
       });
     }
-
-    // 控制在 tokens 数量，防止超出
-    // const filterPrompts = openaiChatFilter(prompts, modelConstantsData.contextMaxToken);
 
     // 格式化文本内容成 chatgpt 格式
     const map = {

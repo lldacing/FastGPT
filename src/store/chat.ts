@@ -9,6 +9,7 @@ type Props = {
   pushChatHistory: (e: HistoryItem) => void;
   updateChatHistory: (chatId: string, title: string) => void;
   removeChatHistoryByWindowId: (chatId: string) => void;
+  initChatHistory: (items: HistoryItem[] | []) => void;
   clearHistory: () => void;
   generateChatWindow: (modelId: string) => Promise<string>;
 };
@@ -30,6 +31,11 @@ export const useChatStore = create<Props>()(
               title: item.chatId === chatId ? title : item.title
             }));
           });
+        },
+        initChatHistory(items: HistoryItem[]){
+            set((state) => {
+                state.chatHistory = items;
+            });
         },
         removeChatHistoryByWindowId(chatId: string) {
           set((state) => {

@@ -1,11 +1,21 @@
 import { GET, POST, DELETE } from './request';
 import type { ChatItemType, ChatSiteItemType } from '@/types/chat';
 import type { InitChatResponse } from './response/chat';
+import {HistoryItem} from "@/types/chat";
 
 /**
  * 获取一个聊天框的ID
  */
 export const getChatSiteId = (modelId: string) => GET<string>(`/chat/generate?modelId=${modelId}`);
+/**
+ * 聊天会话框历史几率
+ */
+export const getChatRooms = () => GET<HistoryItem[]>(`/chat/history`)
+/**
+ * 删除聊天会话框
+ * @param chatId
+ */
+export const deleteChatRoom = (chatId: string) => DELETE(`/chat/delChatRoom?chatId=${chatId}`);
 
 /**
  * 获取初始化聊天内容
