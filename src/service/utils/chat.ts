@@ -3,13 +3,13 @@ import { Chat } from '../mongo';
 import type { ChatPopulate } from '@/types/mongoSchema';
 import { authToken } from './tools';
 import { getOpenApiKey } from './openai';
+import * as process from 'process';
 
 export const getOpenAIApi = (apiKey: string) => {
   const configuration = new Configuration({
     apiKey
   });
-
-  return new OpenAIApi(configuration, undefined);
+  return new OpenAIApi(configuration, process.env.API_BASE_URL || undefined);
 };
 
 export const authChat = async (chatId: string, authorization?: string) => {
