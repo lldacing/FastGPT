@@ -6,6 +6,8 @@ Fast GPT 允许你使用自己的 openai API KEY 来快速的调用 openai 接�
 ![KBProcess](docs/imgs/KBProcess.jpg?raw=true "KBProcess")
 
 ## 开发
+> 因为下面教程有部分镜像不兼容arm64，所以写个文档指导新手如何快速在mac上面搭建fast-gpt[如何在mac上面部署fastgpt](./docs/怎么在mac上面运行fastgpt.md)
+
 复制 .env.template 成 .env.local ，填写核心参数  
 
 ```bash
@@ -114,8 +116,8 @@ CREATE TABLE modelData (
 );
 -- create index
 CREATE INDEX modelData_status_index ON modelData (status);
-CREATE INDEX modelData_modelId_index ON modelData (modelId);
-CREATE INDEX modelData_userId_index ON modelData (userId);
+CREATE INDEX modelData_userId_index ON modelData (user_id);
+CREATE INDEX modelData_modelId_index ON modelData (model_id);
 EOSQL
 ```
 **/root/fast-gpt/nginx/nginx.conf**

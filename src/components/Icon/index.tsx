@@ -13,14 +13,25 @@ const map = {
   board: require('./icons/board.svg').default,
   develop: require('./icons/develop.svg').default,
   user: require('./icons/user.svg').default,
-  chatting: require('./icons/chatting.svg').default
+  chatting: require('./icons/chatting.svg').default,
+  promotion: require('./icons/promotion.svg').default,
+  delete: require('./icons/delete.svg').default,
+  withdraw: require('./icons/withdraw.svg').default
 };
 
 export type IconName = keyof typeof map;
 
 const MyIcon = ({ name, w = 'auto', h = 'auto', ...props }: { name: IconName } & IconProps) => {
   return map[name] ? (
-    <Icon as={map[name]} w={w} h={h} boxSizing={'content-box'} verticalAlign={'top'} {...props} />
+    <Icon
+      as={map[name]}
+      w={w}
+      h={h}
+      boxSizing={'content-box'}
+      verticalAlign={'top'}
+      fill={'currentcolor'}
+      {...props}
+    />
   ) : null;
 };
 
