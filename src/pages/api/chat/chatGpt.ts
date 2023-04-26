@@ -1,11 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { connectToDatabase } from '@/service/mongo';
-import { getOpenAIApi, authChat } from '@/service/utils/chat';
-import { httpsAgent, openaiChatFilter } from '@/service/utils/tools';
-import { ChatCompletionRequestMessage, ChatCompletionRequestMessageRoleEnum } from 'openai';
+import { getOpenAIApi, authChat } from '@/service/utils/auth';
+import { axiosConfig, openaiChatFilter } from '@/service/utils/tools';
 import { ChatItemType } from '@/types/chat';
 import { jsonRes } from '@/service/response';
-import type { ModelSchema } from '@/types/mongoSchema';
 import { PassThrough } from 'stream';
 import { modelList } from '@/constants/model';
 import { pushChatBill } from '@/service/events/pushBill';
@@ -28,29 +26,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   try {
-    const { chatId, prompt } = req.body as {
+    const { chatId, prompt, modelId } = req.body as {
       prompt: ChatItemType;
-      chatId: string;
+      modelId: string;
+      chatId: '' | string;
     };
 
     const { authorization } = req.headers;
-    if (!chatId || !prompt) {
+    if (!modelId || !prompt) {
       throw new Error('缺少参数');
     }
 
     await connectToDatabase();
     let startTime = Date.now();
 
-    const { chat, userApiKey, systemKey, userId } = await authChat(chatId, authorization);
+    const { model, content, userApiKey, systemKey, userId } = await authChat({
+      modelId,
+      chatId,
+      authorization
+    });
 
-    const model: ModelSchema = chat.modelId;
     const modelConstantsData = modelList.find((item) => item.model === model.service.modelName);
     if (!modelConstantsData) {
       throw new Error('模型加载异常');
     }
 
     // 读取对话内容
-    const prompts = [...chat.content, prompt];
+    const prompts = [...content, prompt];
 
     // 如果有系统提示词，自动插入
     if (model.systemPrompt) {
@@ -61,42 +63,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // 控制在 tokens 数量，防止超出
-    const filterPrompts = openaiChatFilter(prompts, modelConstantsData.contextMaxToken);
-
-    // 格式化文本内容成 chatgpt 格式
-    const map = {
-      Human: ChatCompletionRequestMessageRoleEnum.User,
-      AI: ChatCompletionRequestMessageRoleEnum.Assistant,
-      SYSTEM: ChatCompletionRequestMessageRoleEnum.System
-    };
-    const formatPrompts: ChatCompletionRequestMessage[] = filterPrompts.map(
-      (item: ChatItemType) => ({
-        role: map[item.obj],
-        content: item.value
-      })
-    );
+    const filterPrompts = openaiChatFilter({
+      model: model.service.chatModel,
+      prompts,
+      maxTokens: modelConstantsData.contextMaxToken - 500
+    });
 
     // 计算温度
     const temperature = modelConstantsData.maxTemperature * (model.temperature / 10);
-    // console.log({
-    //   model: model.service.chatModel,
-    //   temperature: temperature,
-    //   // max_tokens: modelConstantsData.maxToken,
-    //   messages: formatPrompts,
-    //   frequency_penalty: 0.5, // 越大，重复内容越少
-    //   presence_penalty: -0.5, // 越大，越容易出现新内容
-    //   stream: true,
-    //   stop: ['.!?。']
-    // });
+    // console.log(filterPrompts);
     // 获取 chatAPI
     const chatAPI = getOpenAIApi(userApiKey || systemKey);
     // 发出请求
     const chatResponse = await chatAPI.createChatCompletion(
       {
         model: model.service.chatModel,
-        temperature: temperature,
-        // max_tokens: modelConstantsData.maxToken,
-        messages: formatPrompts,
+        temperature,
+        messages: filterPrompts,
         frequency_penalty: 0.5, // 越大，重复内容越少
         presence_penalty: -0.5, // 越大，越容易出现新内容
         stream: true,
@@ -105,7 +88,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       {
         timeout: 40000,
         responseType: 'stream',
-        httpsAgent: httpsAgent(!userApiKey)
+        ...axiosConfig
       }
     );
 
@@ -118,7 +101,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       stream,
       chatResponse
     });
-    const promptsContent = formatPrompts.map((item) => item.content).join('');
 
     // 只有使用平台的 key 才计费
     pushChatBill({
@@ -126,7 +108,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       modelName: model.service.modelName,
       userId,
       chatId,
-      text: promptsContent + responseContent
+      messages: filterPrompts.concat({ role: 'assistant', content: responseContent })
     });
   } catch (err: any) {
     if (step === 1) {

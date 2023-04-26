@@ -1,11 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { connectToDatabase } from '@/service/mongo';
-import { authChat } from '@/service/utils/chat';
-import { httpsAgent, systemPromptFilter, openaiChatFilter } from '@/service/utils/tools';
-import { ChatCompletionRequestMessage, ChatCompletionRequestMessageRoleEnum } from 'openai';
+import { authChat } from '@/service/utils/auth';
+import { axiosConfig, systemPromptFilter, openaiChatFilter } from '@/service/utils/tools';
 import { ChatItemType } from '@/types/chat';
 import { jsonRes } from '@/service/response';
-import type { ModelSchema } from '@/types/mongoSchema';
 import { PassThrough } from 'stream';
 import {
   modelList,
@@ -35,29 +33,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   try {
-    const { chatId, prompt } = req.body as {
+    const { modelId, chatId, prompt } = req.body as {
+      modelId: string;
+      chatId: '' | string;
       prompt: ChatItemType;
-      chatId: string;
     };
 
     const { authorization } = req.headers;
-    if (!chatId || !prompt) {
+    if (!modelId || !prompt) {
       throw new Error('缺少参数');
     }
 
     await connectToDatabase();
     let startTime = Date.now();
 
-    const { chat, userApiKey, systemKey, userId } = await authChat(chatId, authorization);
+    const { model, content, userApiKey, systemKey, userId } = await authChat({
+      modelId,
+      chatId,
+      authorization
+    });
 
-    const model: ModelSchema = chat.modelId;
     const modelConstantsData = modelList.find((item) => item.model === model.service.modelName);
     if (!modelConstantsData) {
       throw new Error('模型加载异常');
     }
 
     // 读取对话内容
-    const prompts = [...chat.content, prompt];
+    const prompts = [...content, prompt];
 
     // 获取提示词的向量
     const { vector: promptVector, chatAPI } = await openaiCreateEmbedding({
@@ -101,36 +103,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         value: model.systemPrompt
       });
     } else {
-      // 有匹配情况下，添加知识库内容。
-      // 系统提示词过滤，最多 2000 tokens
-      const systemPrompt = systemPromptFilter(formatRedisPrompt, 2000);
+      // 有匹配情况下，system 添加知识库内容。
+      // 系统提示词过滤，最多 2500 tokens
+      const systemPrompt = systemPromptFilter({
+        model: model.service.chatModel,
+        prompts: formatRedisPrompt,
+        maxTokens: 2500
+      });
 
       prompts.unshift({
         obj: 'SYSTEM',
-        value: `${
-          model.systemPrompt || '根据知识库内容回答'
-        } 知识库是最新的,下面是知识库内容:当前时间为${dayjs().format(
-          'YYYY/MM/DD HH:mm:ss'
-        )}\n${systemPrompt}`
+        value: `
+${model.systemPrompt}
+${
+  model.search.mode === ModelVectorSearchModeEnum.hightSimilarity
+    ? `你只能从知识库选择内容回答.不在知识库内容拒绝回复`
+    : ''
+}
+知识库内容为: 当前时间为${dayjs().format('YYYY/MM/DD HH:mm:ss')}\n${systemPrompt}'
+`
       });
     }
 
     // 控制在 tokens 数量，防止超出
-    const filterPrompts = openaiChatFilter(prompts, modelConstantsData.contextMaxToken);
+    const filterPrompts = openaiChatFilter({
+      model: model.service.chatModel,
+      prompts,
+      maxTokens: modelConstantsData.contextMaxToken - 500
+    });
 
-    // 格式化文本内容成 chatgpt 格式
-    const map = {
-      Human: ChatCompletionRequestMessageRoleEnum.User,
-      AI: ChatCompletionRequestMessageRoleEnum.Assistant,
-      SYSTEM: ChatCompletionRequestMessageRoleEnum.System
-    };
-    const formatPrompts: ChatCompletionRequestMessage[] = filterPrompts.map(
-      (item: ChatItemType) => ({
-        role: map[item.obj],
-        content: item.value
-      })
-    );
-    // console.log(formatPrompts);
+    // console.log(filterPrompts);
     // 计算温度
     const temperature = modelConstantsData.maxTemperature * (model.temperature / 10);
 
@@ -138,17 +140,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const chatResponse = await chatAPI.createChatCompletion(
       {
         model: model.service.chatModel,
-        temperature: temperature,
-        // max_tokens: modelConstantsData.maxToken,
-        messages: formatPrompts,
+        temperature,
+        messages: filterPrompts,
         frequency_penalty: 0.5, // 越大，重复内容越少
         presence_penalty: -0.5, // 越大，越容易出现新内容
-        stream: true
+        stream: true,
+        stop: ['.!?。']
       },
       {
         timeout: 40000,
         responseType: 'stream',
-        httpsAgent: httpsAgent(!userApiKey)
+        ...axiosConfig
       }
     );
 
@@ -162,14 +164,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       chatResponse
     });
 
-    const promptsContent = formatPrompts.map((item) => item.content).join('');
     // 只有使用平台的 key 才计费
     pushChatBill({
       isPay: !userApiKey,
       modelName: model.service.modelName,
       userId,
       chatId,
-      text: promptsContent + responseContent
+      messages: filterPrompts.concat({ role: 'assistant', content: responseContent })
     });
     // jsonRes(res);
   } catch (err: any) {

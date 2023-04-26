@@ -1,9 +1,9 @@
 import React, { useCallback, useState, useRef, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Image from 'next/image';
-import { getInitChatSiteInfo, getChatSiteId, delChatRecordByIndex, postSaveChat } from '@/api/chat';
+import { getInitChatSiteInfo, delChatRecordByIndex, postSaveChat } from '@/api/chat';
 import type { InitChatResponse } from '@/api/response/chat';
-import { ChatSiteItemType } from '@/types/chat';
+import type { ChatItemType } from '@/types/chat';
 import {
   Textarea,
   Box,
@@ -21,38 +21,45 @@ import {
 import { useToast } from '@/hooks/useToast';
 import { useScreen } from '@/hooks/useScreen';
 import { useQuery } from '@tanstack/react-query';
-import { ChatModelNameEnum } from '@/constants/model';
+import { ModelNameEnum } from '@/constants/model';
 import dynamic from 'next/dynamic';
 import { useGlobalStore } from '@/store/global';
-import { useChatStore } from '@/store/chat';
 import { useCopyData } from '@/utils/tools';
 import { streamFetch } from '@/api/fetch';
 import Icon from '@/components/Icon';
 import MyIcon from '@/components/Icon';
 import { throttle } from 'lodash';
+import { customAlphabet } from 'nanoid';
+const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz1234567890', 5);
 
 const SlideBar = dynamic(() => import('./components/SlideBar'));
 const Empty = dynamic(() => import('./components/Empty'));
 const Markdown = dynamic(() => import('@/components/Markdown'));
 
+import styles from './index.module.scss';
+
 const textareaMinH = '22px';
+
+export type ChatSiteItemType = {
+  id: string;
+  status: 'loading' | 'finish';
+} & ChatItemType;
 
 interface ChatType extends InitChatResponse {
   history: ChatSiteItemType[];
 }
 
-const Chat = ({ chatId }: { chatId: string }) => {
+const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
+  const router = useRouter();
+
   const ChatBox = useRef<HTMLDivElement>(null);
   const TextareaDom = useRef<HTMLTextAreaElement>(null);
-
-  const { toast } = useToast();
-  const router = useRouter();
 
   // 中断请求
   const controller = useRef(new AbortController());
   const [chatData, setChatData] = useState<ChatType>({
-    chatId: '',
-    modelId: '',
+    chatId,
+    modelId,
     name: '',
     avatar: '',
     intro: '',
@@ -60,6 +67,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
     modelName: '',
     history: []
   }); // 聊天框整体数据
+
   const [inputVal, setInputVal] = useState(''); // 输入的内容
 
   const isChatting = useMemo(
@@ -68,10 +76,10 @@ const Chat = ({ chatId }: { chatId: string }) => {
   );
   const { isOpen: isOpenSlider, onClose: onCloseSlider, onOpen: onOpenSlider } = useDisclosure();
 
+  const { toast } = useToast();
   const { copyData } = useCopyData();
   const { isPc, media } = useScreen();
   const { setLoading } = useGlobalStore();
-  const { pushChatHistory } = useChatStore();
 
   // 滚动到底部
   const scrollToBottom = useCallback((behavior: 'smooth' | 'auto' = 'smooth') => {
@@ -108,40 +116,102 @@ const Chat = ({ chatId }: { chatId: string }) => {
     }, 100);
   }, []);
 
-  // 重载对话
-  const resetChat = useCallback(async () => {
-    if (!chatData) return;
-    try {
-      router.replace(`/chat?chatId=${await getChatSiteId(chatData.modelId)}`);
-    } catch (error: any) {
-      toast({
-        title: error?.message || '生成新对话失败',
-        status: 'warning'
-      });
-    }
-    onCloseSlider();
-  }, [chatData, onCloseSlider, router, toast]);
+  // 获取对话信息
+  const loadChatInfo = useCallback(
+    async ({
+      modelId,
+      chatId,
+      isLoading = false,
+      isScroll = false
+    }: {
+      modelId: string;
+      chatId: string;
+      isLoading?: boolean;
+      isScroll?: boolean;
+    }) => {
+      isLoading && setLoading(true);
+      try {
+        const res = await getInitChatSiteInfo(modelId, chatId);
+
+        setChatData({
+          ...res,
+          history: res.history.map((item: any, i) => ({
+            obj: item.obj,
+            value: item.value,
+            id: item.id || `${nanoid()}-${i}`,
+            status: 'finish'
+          }))
+        });
+        if (isScroll && res.history.length > 0) {
+          setTimeout(() => {
+            scrollToBottom('auto');
+          }, 1200);
+        }
+      } catch (e: any) {
+        toast({
+          title: e?.message || '获取对话信息异常,请检查地址',
+          status: 'error',
+          isClosable: true,
+          duration: 5000
+        });
+        router.replace('/model/list');
+      }
+      setLoading(false);
+      return null;
+    },
+    [router, scrollToBottom, setLoading, toast]
+  );
+
+  // 重载新的对话
+  const resetChat = useCallback(
+    async (modelId = chatData.modelId, chatId = '') => {
+      // 强制中断流
+      controller.current?.abort();
+      try {
+        router.replace(`/chat?modelId=${modelId}&chatId=${chatId}`);
+        loadChatInfo({
+          modelId,
+          chatId,
+          isLoading: true,
+          isScroll: true
+        });
+      } catch (error: any) {
+        toast({
+          title: error?.message || '生成新对话失败',
+          status: 'warning'
+        });
+      }
+      onCloseSlider();
+    },
+    [chatData.modelId, loadChatInfo, onCloseSlider, router, toast]
+  );
 
   // gpt 对话
   const gptChatPrompt = useCallback(
     async (prompts: ChatSiteItemType) => {
       const urlMap: Record<string, string> = {
-        [ChatModelNameEnum.GPT35]: '/api/chat/chatGpt',
-        [ChatModelNameEnum.VECTOR_GPT]: '/api/chat/vectorGpt'
+        [ModelNameEnum.GPT35]: '/api/chat/chatGpt',
+        [ModelNameEnum.VECTOR_GPT]: '/api/chat/vectorGpt'
       };
 
       if (!urlMap[chatData.modelName]) return Promise.reject('找不到模型');
+
+      // create abort obj
+      const abortSignal = new AbortController();
+      controller.current = abortSignal;
 
       const prompt = {
         obj: prompts.obj,
         value: prompts.value
       };
+
       // 流请求，获取数据
-      const res = await streamFetch({
+      const responseText = await streamFetch({
         url: urlMap[chatData.modelName],
         data: {
           prompt,
-          chatId
+          chatId,
+          modelId
         },
         onMessage: (text: string) => {
           setChatData((state) => ({
@@ -156,21 +226,26 @@ const Chat = ({ chatId }: { chatId: string }) => {
           }));
           generatingMessage();
         },
-        abortSignal: controller.current
+        abortSignal
       });
 
+      let newChatId = '';
       // 保存对话信息
       try {
-        await postSaveChat({
+        newChatId = await postSaveChat({
+          modelId,
           chatId,
           prompts: [
             prompt,
             {
               obj: 'AI',
-              value: res as string
+              value: responseText
             }
           ]
         });
+        if (newChatId) {
+          router.replace(`/chat?modelId=${modelId}&chatId=${newChatId}`);
+        }
       } catch (err) {
         toast({
           title: '对话出现异常, 继续对话会导致上下文丢失，请刷新页面',
@@ -180,9 +255,10 @@ const Chat = ({ chatId }: { chatId: string }) => {
         });
       }
 
-      // 设置完成状态
+      // 设置聊天内容为完成状态
       setChatData((state) => ({
         ...state,
+        chatId: newChatId || state.chatId, // 如果有 Id，说明是新创建的对话
         history: state.history.map((item, index) => {
           if (index !== state.history.length - 1) return item;
           return {
@@ -192,7 +268,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
         })
       }));
     },
-    [chatData.modelName, chatId, generatingMessage, toast]
+    [chatData.modelName, chatId, generatingMessage, modelId, router, toast]
   );
 
   /**
@@ -210,7 +286,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
     // 去除空行
     const val = inputVal.trim().replace(/\n\s*/g, '\n');
 
-    if (!chatData?.modelId || !val) {
+    if (!val) {
       toast({
         title: '内容为空',
         status: 'warning'
@@ -221,11 +297,13 @@ const Chat = ({ chatId }: { chatId: string }) => {
     const newChatList: ChatSiteItemType[] = [
       ...chatData.history,
       {
+        id: nanoid(),
         obj: 'Human',
         value: val,
         status: 'finish'
       },
       {
+        id: nanoid(),
         obj: 'AI',
         value: '',
         status: 'loading'
@@ -246,15 +324,6 @@ const Chat = ({ chatId }: { chatId: string }) => {
 
     try {
       await gptChatPrompt(newChatList[newChatList.length - 2]);
-
-      // 如果是 Human 第一次发送，插入历史记录
-      const humanChat = newChatList.filter((item) => item.obj === 'Human');
-      if (humanChat.length === 1) {
-        pushChatHistory({
-          chatId,
-          title: humanChat[0].value
-        });
-      }
     } catch (err: any) {
       toast({
         title: typeof err === 'string' ? err : err?.message || '聊天出错了~',
@@ -270,17 +339,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
         history: newChatList.slice(0, newChatList.length - 2)
       }));
     }
-  }, [
-    inputVal,
-    chatData,
-    isChatting,
-    resetInputVal,
-    scrollToBottom,
-    toast,
-    gptChatPrompt,
-    pushChatHistory,
-    chatId
-  ]);
+  }, [isChatting, inputVal, chatData.history, resetInputVal, toast, scrollToBottom, gptChatPrompt]);
 
   // 删除一句话
   const delChatRecord = useCallback(
@@ -312,50 +371,22 @@ const Chat = ({ chatId }: { chatId: string }) => {
   );
 
   // 初始化聊天框
-  useQuery(
-    ['init', chatId],
-    () => {
-      setLoading(true);
-      return getInitChatSiteInfo(chatId);
-    },
-    {
-      onSuccess(res) {
-        setChatData({
-          ...res,
-          history: res.history.map((item) => ({
-            ...item,
-            status: 'finish'
-          }))
-        });
-        if (res.history.length > 0) {
-          setTimeout(() => {
-            scrollToBottom('auto');
-          }, 2000);
-        }
-      },
-      onError(e: any) {
-        toast({
-          title: e?.message || '初始化异常,请检查地址',
-          status: 'error',
-          isClosable: true,
-          duration: 5000
-        });
-        router.push('/model/list');
-      },
-      onSettled() {
-        setLoading(false);
-      }
-    }
+  useQuery(['init'], () =>
+    loadChatInfo({
+      modelId,
+      chatId,
+      isLoading: true,
+      isScroll: true
+    })
   );
 
   // 更新流中断对象
   useEffect(() => {
-    controller.current = new AbortController();
     return () => {
       // eslint-disable-next-line react-hooks/exhaustive-deps
       controller.current?.abort();
     };
-  }, [chatId]);
+  }, []);
 
   return (
     <Flex
@@ -368,7 +399,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
           <SlideBar
             resetChat={resetChat}
             chatId={chatId}
-            modelId={chatData.modelId}
+            modelId={modelId}
             onClose={onCloseSlider}
           />
         </Box>
@@ -399,7 +430,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
               <SlideBar
                 resetChat={resetChat}
                 chatId={chatId}
-                modelId={chatData.modelId}
+                modelId={modelId}
                 onClose={onCloseSlider}
               />
             </DrawerContent>
@@ -416,7 +447,7 @@ const Chat = ({ chatId }: { chatId: string }) => {
         <Box ref={ChatBox} pb={[4, 0]} flex={'1 0 0'} h={0} w={'100%'} overflowY={'auto'}>
           {chatData.history.map((item, index) => (
             <Box
-              key={index}
+              key={item.id}
               py={media(9, 6)}
               px={media(4, 2)}
               backgroundColor={
@@ -531,19 +562,23 @@ const Chat = ({ chatId }: { chatId: string }) => {
             <Flex
               alignItems={'center'}
               justifyContent={'center'}
-              h={'30px'}
-              w={'30px'}
+              h={'25px'}
+              w={'25px'}
               position={'absolute'}
               right={['12px', '20px']}
               bottom={'15px'}
-              onClick={sendPrompt}
             >
               {isChatting ? (
                 <Icon
-                  style={{ transform: 'translateY(4px)' }}
-                  h={'30px'}
-                  w={'30px'}
-                  name={'chatting'}
+                  className={styles.stopIcon}
+                  width={['22px', '25px']}
+                  height={['22px', '25px']}
+                  cursor={'pointer'}
+                  name={'stop'}
+                  color={useColorModeValue('gray.500', 'white')}
+                  onClick={() => {
+                    controller.current?.abort();
+                  }}
                 />
               ) : (
                 <Icon
@@ -551,8 +586,9 @@ const Chat = ({ chatId }: { chatId: string }) => {
                   width={['18px', '20px']}
                   height={['18px', '20px']}
                   cursor={'pointer'}
-                  fill={useColorModeValue('#718096', 'white')}
-                ></Icon>
+                  color={useColorModeValue('gray.500', 'white')}
+                  onClick={sendPrompt}
+                />
               )}
             </Flex>
           </Box>
@@ -565,9 +601,10 @@ const Chat = ({ chatId }: { chatId: string }) => {
 export default Chat;
 
 export async function getServerSideProps(context: any) {
-  const chatId = context?.query?.chatId || 'noid';
+  const modelId = context?.query?.modelId || '';
+  const chatId = context?.query?.chatId || '';
 
   return {
-    props: { chatId }
+    props: { modelId, chatId }
   };
 }

@@ -6,16 +6,17 @@ Fast GPT 允许你使用自己的 openai API KEY 来快速的调用 openai 接�
 ![KBProcess](docs/imgs/KBProcess.jpg?raw=true "KBProcess")
 
 ## 开发
-> 因为下面教程有部分镜像不兼容arm64，所以写个文档指导新手如何快速在mac上面搭建fast-gpt[如何在mac上面部署fastgpt](./docs/怎么在mac上面运行fastgpt.md)
-
 复制 .env.template 成 .env.local ，填写核心参数  
 
 ```bash
 # proxy（不需要代理可忽略）
 AXIOS_PROXY_HOST=127.0.0.1
-AXIOS_PROXY_PORT_FAST=7890
-AXIOS_PROXY_PORT_NORMAL=7890
+AXIOS_PROXY_PORT=7890
+# 中转方案，修改 openai 的 base url
+OPENAI_BASE_URL=https://api.openai.com/v1
+# 是否开启队列任务。 1-开启，0-关闭（请求parentUrl去执行任务,单机时直接填1）
 queueTask=1
+parentUrl=https://hostname/api/openapi/startEvents
 # email，参考 nodeMail 获取参数
 MY_MAIL=xxx@qq.com
 MAILE_CODE=xxx
@@ -42,7 +43,7 @@ PG_DB_NAME=xxx
 pnpm dev
 ```
 
-## 部署
+## docker 部署
 
 ### 安装 docker 和 docker-compose
 这个不同系统略有区别，百度安装下。验证安装成功后进行下一步。下面给出一个例子：
@@ -115,9 +116,9 @@ CREATE TABLE modelData (
     a TEXT NOT NULL
 );
 -- create index
-CREATE INDEX modelData_status_index ON modelData (status);
-CREATE INDEX modelData_userId_index ON modelData (user_id);
-CREATE INDEX modelData_modelId_index ON modelData (model_id);
+CREATE INDEX modelData_status_index ON modelData USING HASH (status);
+CREATE INDEX modelData_userId_index ON modelData USING HASH (user_id);
+CREATE INDEX modelData_modelId_index ON modelData USING HASH (model_id);
 EOSQL
 ```
 **/root/fast-gpt/nginx/nginx.conf**
@@ -182,24 +183,17 @@ services:
     restart: always
     container_name: fast-gpt
     environment:
-      # 代理（不需要代理，可去掉下面三个参数）
       - AXIOS_PROXY_HOST=127.0.0.1
-      - AXIOS_PROXY_PORT_FAST=7890
-      - AXIOS_PROXY_PORT_NORMAL=7890
-      # 邮箱
+      - AXIOS_PROXY_PORT=7890
       - MY_MAIL=xxxx@qq.com  
       - MAILE_CODE=xxxx
-      # 阿里云短信
       - aliAccessKeyId=xxxx 
       - aliAccessKeySecret=xxxx
       - aliSignName=xxxxx
       - aliTemplateCode=SMS_xxxx
-      # 登录 key
       - TOKEN_KEY=xxxx 
-      # 是否开启队列任务。 1-开启，0-关闭（请求parentUrl去执行任务,单机时直接填1）
       - queueTask=1
-      - parentUrl=https://fastgpt.run/api/openapi/startEvents
-      # db
+      - parentUrl=https://hostname/api/openapi/startEvents
       - MONGODB_URI=mongodb://username:passsword@0.0.0.0:27017/?authSource=admin
       - MONGODB_NAME=xxx
       - PG_HOST=0.0.0.0
@@ -207,7 +201,6 @@ services:
       - PG_USER=xxx
       - PG_PASSWORD=xxx
       - PG_DB_NAME=xxx
-      # openai 账号
       - OPENAIKEY=sk-xxxxx
   nginx: 
     image: nginx:alpine3.17
@@ -270,3 +263,11 @@ do
     docker rmi $image_id
 done
 ```
+
+## Mac 可能的问题
+> 因为教程有部分镜像不兼容arm64，所以写个文档指导新手如何快速在mac上面搭建fast-gpt[如何在mac上面部署fastgpt](./docs/mac.md)
+
+## Git Action 配置
+1. 创建账号 session: 头像 -> settings -> 最底部 Developer settings ->  Personal access tokens -> tokens(classic) -> 创建新 session，把一些看起来需要的权限勾上。
+2. 添加 session 到仓库: 仓库 -> settings -> Secrets and variables -> Actions -> 创建secret
+3. 填写 secret: Name-GH_PAT, Secret-第一步的tokens 

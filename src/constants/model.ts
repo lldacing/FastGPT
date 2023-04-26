@@ -1,28 +1,32 @@
-import type { ServiceName, ModelDataType, ModelSchema } from '@/types/mongoSchema';
+import type { ModelSchema } from '@/types/mongoSchema';
 
 export enum ModelDataStatusEnum {
   ready = 'ready',
   waiting = 'waiting'
 }
 
-export enum ChatModelNameEnum {
-  GPT35 = 'gpt-3.5-turbo',
-  VECTOR_GPT = 'VECTOR_GPT',
-  VECTOR = 'text-embedding-ada-002'
+export const embeddingModel = 'text-embedding-ada-002';
+export enum ChatModelEnum {
+  'GPT35' = 'gpt-3.5-turbo',
+  'GPT4' = 'gpt-4',
+  'GPT432k' = 'gpt-4-32k'
 }
 
-export const ChatModelNameMap = {
-  [ChatModelNameEnum.GPT35]: 'gpt-3.5-turbo',
-  [ChatModelNameEnum.VECTOR_GPT]: 'gpt-3.5-turbo',
-  [ChatModelNameEnum.VECTOR]: 'text-embedding-ada-002'
+export enum ModelNameEnum {
+  GPT35 = 'gpt-3.5-turbo',
+  VECTOR_GPT = 'VECTOR_GPT'
+}
+
+export const Model2ChatModelMap: Record<`${ModelNameEnum}`, `${ChatModelEnum}`> = {
+  [ModelNameEnum.GPT35]: 'gpt-3.5-turbo',
+  [ModelNameEnum.VECTOR_GPT]: 'gpt-3.5-turbo'
 };
 
 export type ModelConstantsData = {
-  serviceCompany: `${ServiceName}`;
+  icon: 'model' | 'dbModel';
   name: string;
-  model: `${ChatModelNameEnum}`;
+  model: `${ModelNameEnum}`;
   trainName: string; // 空字符串代表不能训练
-  maxToken: number;
   contextMaxToken: number;
   maxTemperature: number;
   price: number; // 多少钱 / 1token，单位: 0.00001元
@@ -30,22 +34,20 @@ export type ModelConstantsData = {
 
 export const modelList: ModelConstantsData[] = [
   {
-    serviceCompany: 'openai',
+    icon: 'model',
     name: 'chatGPT',
-    model: ChatModelNameEnum.GPT35,
+    model: ModelNameEnum.GPT35,
     trainName: '',
-    maxToken: 4000,
-    contextMaxToken: 7000,
+    contextMaxToken: 4096,
     maxTemperature: 1.5,
     price: 3
   },
   {
-    serviceCompany: 'openai',
+    icon: 'dbModel',
     name: '知识库',
-    model: ChatModelNameEnum.VECTOR_GPT,
+    model: ModelNameEnum.VECTOR_GPT,
     trainName: 'vector',
-    maxToken: 4000,
-    contextMaxToken: 7000,
+    contextMaxToken: 4096,
     maxTemperature: 1,
     price: 3
   }
@@ -120,7 +122,7 @@ export const ModelVectorSearchModeMap: Record<
 export const defaultModel: ModelSchema = {
   _id: '',
   userId: '',
-  name: '',
+  name: 'modelName',
   avatar: '',
   status: ModelStatusEnum.pending,
   updateTime: Date.now(),
@@ -132,10 +134,9 @@ export const defaultModel: ModelSchema = {
     mode: ModelVectorSearchModeEnum.hightSimilarity
   },
   service: {
-    company: 'openai',
     trainId: '',
-    chatModel: ChatModelNameEnum.GPT35,
-    modelName: ChatModelNameEnum.GPT35
+    chatModel: ModelNameEnum.GPT35,
+    modelName: ModelNameEnum.GPT35
   },
   security: {
     domain: ['*'],

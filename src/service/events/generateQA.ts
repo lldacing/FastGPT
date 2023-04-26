@@ -1,9 +1,9 @@
 import { SplitData } from '@/service/mongo';
-import { getOpenAIApi } from '@/service/utils/chat';
-import { httpsAgent } from '@/service/utils/tools';
+import { getOpenAIApi } from '@/service/utils/auth';
+import { axiosConfig } from '@/service/utils/tools';
 import { getOpenApiKey } from '../utils/openai';
 import type { ChatCompletionRequestMessage } from 'openai';
-import { ChatModelNameEnum } from '@/constants/model';
+import { ChatModelEnum } from '@/constants/model';
 import { pushSplitDataBill } from '@/service/events/pushBill';
 import { generateVector } from './generateVector';
 import { openaiError2 } from '../errorCode';
@@ -69,9 +69,13 @@ export async function generateQA(next = false): Promise<any> {
     const chatAPI = getOpenAIApi(userApiKey || systemKey);
     const systemPrompt: ChatCompletionRequestMessage = {
       role: 'system',
-      content: `你是出题官.${
-        dataItem.prompt || '下面是"一段长文本"'
-      },从中选出5至20个题目和答案,题目包含问答题,计算题,代码题等.答案要详细.按格式返回: Q1:\nA1:\nQ2:\nA2:\n`
+      content: `你是出题人
+${dataItem.prompt || '下面是"一段长文本"'}
+从中选出5至20个题目和答案,题目包含问答题,计算题,代码题等.答案要详细.按格式返回: Q1:
+A1:
+Q2:
+A2:
+...`
     };
 
     // 请求 chatgpt 获取回答
@@ -80,7 +84,7 @@ export async function generateQA(next = false): Promise<any> {
         chatAPI
           .createChatCompletion(
             {
-              model: ChatModelNameEnum.GPT35,
+              model: ChatModelEnum.GPT35,
               temperature: 0.8,
               n: 1,
               messages: [
@@ -93,7 +97,7 @@ export async function generateQA(next = false): Promise<any> {
             },
             {
               timeout: 180000,
-              httpsAgent: httpsAgent(!userApiKey)
+              ...axiosConfig
             }
           )
           .then((res) => {

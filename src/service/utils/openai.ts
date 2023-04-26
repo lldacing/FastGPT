@@ -1,11 +1,11 @@
 import type { NextApiResponse } from 'next';
 import type { PassThrough } from 'stream';
 import { createParser, ParsedEvent, ReconnectInterval } from 'eventsource-parser';
-import { getOpenAIApi } from '@/service/utils/chat';
-import { httpsAgent } from './tools';
+import { getOpenAIApi } from '@/service/utils/auth';
+import { axiosConfig } from './tools';
 import { User } from '../models/user';
 import { formatPrice } from '@/utils/user';
-import { ChatModelNameEnum } from '@/constants/model';
+import { embeddingModel } from '@/constants/model';
 import { pushGenerateVectorBill } from '../events/pushBill';
 
 /* 获取用户 api 的 openai 信息 */
@@ -80,12 +80,12 @@ export const openaiCreateEmbedding = async ({
   const res = await chatAPI
     .createEmbedding(
       {
-        model: ChatModelNameEnum.VECTOR,
+        model: embeddingModel,
         input: text
       },
       {
         timeout: 60000,
-        httpsAgent: httpsAgent(isPay)
+        ...axiosConfig
       }
     )
     .then((res) => ({
@@ -123,9 +123,9 @@ export const gpt35StreamResponse = ({
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('X-Accel-Buffering', 'no');
       res.setHeader('Cache-Control', 'no-cache, no-transform');
+      stream.pipe(res);
 
       let responseContent = '';
-      stream.pipe(res);
 
       const onParse = async (event: ParsedEvent | ReconnectInterval) => {
         if (event.type !== 'event') return;
@@ -134,11 +134,11 @@ export const gpt35StreamResponse = ({
         try {
           const json = JSON.parse(data);
           const content: string = json?.choices?.[0].delta.content || '';
-          // console.log('content:', content);
-          if (!content || (responseContent === '' && content === '\n')) return;
-
           responseContent += content;
-          !stream.destroyed && stream.push(content.replace(/\n/g, '<br/>'));
+
+          if (!stream.destroyed && content) {
+            stream.push(content.replace(/\n/g, '<br/>'));
+          }
         } catch (error) {
           error;
         }

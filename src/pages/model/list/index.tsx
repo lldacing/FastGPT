@@ -1,6 +1,5 @@
 import React, { useState, useCallback } from 'react';
 import { Box, Button, Flex, Card } from '@chakra-ui/react';
-import { getChatSiteId } from '@/api/chat';
 import type { ModelSchema } from '@/types/mongoSchema';
 import { useRouter } from 'next/router';
 import ModelTable from './components/ModelTable';
@@ -38,9 +37,7 @@ const modelList = () => {
     async (modelId: string) => {
       setIsLoading(true);
       try {
-        const chatId = await getChatSiteId(modelId);
-
-        router.push(`/chat?chatId=${chatId}`, undefined, {
+        router.push(`/chat?modelId=${modelId}`, undefined, {
           shallow: true
         });
       } catch (err: any) {
