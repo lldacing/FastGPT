@@ -57,12 +57,13 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
 
   // 中断请求
   const controller = useRef(new AbortController());
+  const isResetPage = useRef(false);
+
   const [chatData, setChatData] = useState<ChatType>({
     chatId,
     modelId,
     name: '',
     avatar: '',
-    intro: '',
     chatModel: '',
     modelName: '',
     history: []
@@ -166,7 +167,9 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
   const resetChat = useCallback(
     async (modelId = chatData.modelId, chatId = '') => {
       // 强制中断流
+      isResetPage.current = true;
       controller.current?.abort();
+
       try {
         router.replace(`/chat?modelId=${modelId}&chatId=${chatId}`);
         loadChatInfo({
@@ -199,6 +202,7 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
       // create abort obj
       const abortSignal = new AbortController();
       controller.current = abortSignal;
+      isResetPage.current = false;
 
       const prompt = {
         obj: prompts.obj,
@@ -228,6 +232,11 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
         },
         abortSignal
       });
+
+      // 重置了页面，说明退出了当前聊天, 不缓存任何内容
+      if (isResetPage.current) {
+        return;
+      }
 
       let newChatId = '';
       // 保存对话信息
@@ -507,7 +516,7 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
               </Flex>
             </Box>
           ))}
-          {chatData.history.length === 0 && <Empty intro={chatData.intro} />}
+          {chatData.history.length === 0 && <Empty intro={''} />}
         </Box>
         {/* 发送区 */}
         <Box m={media('20px auto', '0 auto')} w={'100%'} maxW={media('min(750px, 100%)', 'auto')}>
