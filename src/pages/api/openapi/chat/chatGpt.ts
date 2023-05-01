@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { connectToDatabase, Model } from '@/service/mongo';
-import { getOpenAIApi } from '@/service/utils/auth';
-import { axiosConfig, openaiChatFilter, authOpenApiKey } from '@/service/utils/tools';
+import { getOpenAIApi, authOpenApiKey } from '@/service/utils/auth';
+import { axiosConfig, openaiChatFilter } from '@/service/utils/tools';
 import { ChatItemType } from '@/types/chat';
 import { jsonRes } from '@/service/response';
 import { PassThrough } from 'stream';
@@ -60,37 +60,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       throw new Error('无权使用该模型');
     }
 
-    const modelConstantsData = modelList.find((item) => item.model === model.service.modelName);
+    const modelConstantsData = modelList.find((item) => item.chatModel === model.chat.chatModel);
     if (!modelConstantsData) {
       throw new Error('模型加载异常');
     }
 
     // 如果有系统提示词，自动插入
-    if (model.systemPrompt) {
+    if (model.chat.systemPrompt) {
       prompts.unshift({
         obj: 'SYSTEM',
-        value: model.systemPrompt
+        value: model.chat.systemPrompt
       });
     }
 
     // 控制在 tokens 数量，防止超出
     const filterPrompts = openaiChatFilter({
-      model: model.service.chatModel,
+      model: model.chat.chatModel,
       prompts,
       maxTokens: modelConstantsData.contextMaxToken - 500
     });
 
     // console.log(filterPrompts);
     // 计算温度
-    const temperature = modelConstantsData.maxTemperature * (model.temperature / 10);
-
+    const temperature = (modelConstantsData.maxTemperature * (model.chat.temperature / 10)).toFixed(
+      2
+    );
     // 获取 chatAPI
     const chatAPI = getOpenAIApi(apiKey);
     // 发出请求
     const chatResponse = await chatAPI.createChatCompletion(
       {
-        model: model.service.chatModel,
-        temperature,
+        model: model.chat.chatModel,
+        temperature: Number(temperature) || 0,
         messages: filterPrompts,
         frequency_penalty: 0.5, // 越大，重复内容越少
         presence_penalty: -0.5, // 越大，越容易出现新内容
@@ -100,16 +101,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       {
         timeout: 40000,
         responseType: isStream ? 'stream' : 'json',
-        ...axiosConfig
+        ...axiosConfig()
       }
     );
 
     console.log('api response time:', `${(Date.now() - startTime) / 1000}s`);
 
-    step = 1;
     let responseContent = '';
 
     if (isStream) {
+      step = 1;
       const streamResponse = await gpt35StreamResponse({
         res,
         stream,
@@ -126,7 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 只有使用平台的 key 才计费
     pushChatBill({
       isPay: true,
-      modelName: model.service.modelName,
+      chatModel: model.chat.chatModel,
       userId,
       messages: filterPrompts.concat({ role: 'assistant', content: responseContent })
     });

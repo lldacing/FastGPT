@@ -1,6 +1,6 @@
 import { GET, POST, DELETE, PUT } from './request';
 import type { ModelSchema, ModelDataSchema } from '@/types/mongoSchema';
-import { ModelUpdateParams } from '@/types/model';
+import { ModelUpdateParams, ShareModelItem } from '@/types/model';
 import { RequestPaging } from '../types/index';
 import { Obj2Query } from '@/utils/tools';
 
@@ -12,8 +12,7 @@ export const getMyModels = () => GET<ModelSchema[]>('/model/list');
 /**
  * 创建一个模型
  */
-export const postCreateModel = (data: { name: string; serviceModelName: string }) =>
-  POST<ModelSchema>('/model/create', data);
+export const postCreateModel = (data: { name: string }) => POST<string>('/model/create', data);
 
 /**
  * 根据 ID 删除模型
@@ -93,3 +92,19 @@ export const putModelDataById = (data: { dataId: string; a: string; q?: string }
  */
 export const delOneModelData = (dataId: string) =>
   DELETE(`/model/data/delModelDataById?dataId=${dataId}`);
+
+/* 共享市场 */
+/**
+ * 获取共享市场模型
+ */
+export const getShareModelList = (data: { searchText?: string } & RequestPaging) =>
+  POST(`/model/share/getModels`, data);
+/**
+ * 获取收藏的模型
+ */
+export const getCollectionModels = () => GET<ShareModelItem[]>(`/model/share/getCollection`);
+/**
+ * 收藏/取消收藏模型
+ */
+export const triggerModelCollection = (modelId: string) =>
+  POST<number>(`/model/share/collection?modelId=${modelId}`);

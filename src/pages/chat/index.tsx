@@ -1,6 +1,5 @@
 import React, { useCallback, useState, useRef, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import Image from 'next/image';
 import { getInitChatSiteInfo, delChatRecordByIndex, postSaveChat } from '@/api/chat';
 import type { InitChatResponse } from '@/api/response/chat';
 import type { ChatItemType } from '@/types/chat';
@@ -16,12 +15,13 @@ import {
   Menu,
   MenuButton,
   MenuList,
-  MenuItem
+  MenuItem,
+  Image
 } from '@chakra-ui/react';
 import { useToast } from '@/hooks/useToast';
 import { useScreen } from '@/hooks/useScreen';
 import { useQuery } from '@tanstack/react-query';
-import { ModelNameEnum } from '@/constants/model';
+import { ChatModelEnum } from '@/constants/model';
 import dynamic from 'next/dynamic';
 import { useGlobalStore } from '@/store/global';
 import { useCopyData } from '@/utils/tools';
@@ -63,9 +63,9 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
     chatId,
     modelId,
     name: '',
-    avatar: '',
-    chatModel: '',
-    modelName: '',
+    avatar: '/icon/logo.png',
+    intro: '',
+    chatModel: ChatModelEnum.GPT35,
     history: []
   }); // 聊天框整体数据
 
@@ -155,7 +155,7 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
           isClosable: true,
           duration: 5000
         });
-        router.replace('/model/list');
+        router.back();
       }
       setLoading(false);
       return null;
@@ -192,13 +192,6 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
   // gpt 对话
   const gptChatPrompt = useCallback(
     async (prompts: ChatSiteItemType) => {
-      const urlMap: Record<string, string> = {
-        [ModelNameEnum.GPT35]: '/api/chat/chatGpt',
-        [ModelNameEnum.VECTOR_GPT]: '/api/chat/vectorGpt'
-      };
-
-      if (!urlMap[chatData.modelName]) return Promise.reject('找不到模型');
-
       // create abort obj
       const abortSignal = new AbortController();
       controller.current = abortSignal;
@@ -211,7 +204,7 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
 
       // 流请求，获取数据
       const responseText = await streamFetch({
-        url: urlMap[chatData.modelName],
+        url: '/api/chat/chat',
         data: {
           prompt,
           chatId,
@@ -277,7 +270,7 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
         })
       }));
     },
-    [chatData.modelName, chatId, generatingMessage, modelId, router, toast]
+    [chatId, generatingMessage, modelId, router, toast]
   );
 
   /**
@@ -392,7 +385,7 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
   // 更新流中断对象
   useEffect(() => {
     return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      isResetPage.current = true;
       controller.current?.abort();
     };
   }, []);
@@ -466,13 +459,18 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
               borderBottom={'1px solid rgba(0,0,0,0.1)'}
             >
               <Flex maxW={'750px'} m={'auto'} alignItems={'flex-start'}>
-                <Menu>
+                <Menu autoSelect={false}>
                   <MenuButton as={Box} mr={media(4, 1)} cursor={'pointer'}>
                     <Image
-                      src={item.obj === 'Human' ? '/icon/human.png' : '/icon/logo.png'}
-                      alt="/icon/logo.png"
-                      width={media(30, 20)}
-                      height={media(30, 20)}
+                      src={
+                        item.obj === 'Human'
+                          ? '/icon/human.png'
+                          : chatData.avatar || '/icon/logo.png'
+                      }
+                      alt="avatar"
+                      w={['20px', '30px']}
+                      maxH={'50px'}
+                      objectFit={'contain'}
                     />
                   </MenuButton>
                   <MenuList fontSize={'sm'}>
@@ -516,7 +514,9 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
               </Flex>
             </Box>
           ))}
-          {chatData.history.length === 0 && <Empty intro={''} />}
+          {chatData.history.length === 0 && (
+            <Empty modelName={chatData.name} intro={chatData.intro} />
+          )}
         </Box>
         {/* 发送区 */}
         <Box m={media('20px auto', '0 auto')} w={'100%'} maxW={media('min(750px, 100%)', 'auto')}>

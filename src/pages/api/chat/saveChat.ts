@@ -3,7 +3,7 @@ import { jsonRes } from '@/service/response';
 import { ChatItemType } from '@/types/chat';
 import { connectToDatabase, Chat } from '@/service/mongo';
 import { authModel } from '@/service/utils/auth';
-import { authToken } from '@/service/utils/tools';
+import { authToken } from '@/service/utils/auth';
 
 /* 聊天内容存存储 */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -27,9 +27,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       value: item.value
     }));
 
+    await authModel({ modelId, userId, authOwner: false });
+
     // 没有 chatId, 创建一个对话
     if (!chatId) {
-      await authModel(modelId, userId);
       const { _id } = await Chat.create({
         userId,
         modelId,

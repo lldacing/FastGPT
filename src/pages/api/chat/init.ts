@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { jsonRes } from '@/service/response';
 import { connectToDatabase, Chat } from '@/service/mongo';
 import type { InitChatResponse } from '@/api/response/chat';
-import { authToken } from '@/service/utils/tools';
+import { authToken } from '@/service/utils/auth';
 import { ChatItemType } from '@/types/chat';
 import { authModel } from '@/service/utils/auth';
 import mongoose from 'mongoose';
@@ -22,7 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     await connectToDatabase();
 
     // 获取 model 数据
-    const { model } = await authModel(modelId, userId);
+    const { model } = await authModel({ modelId, userId, authUser: false, authOwner: false });
 
     // 历史记录
     let history: ChatItemType[] = [];
@@ -30,7 +30,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (chatId) {
       // 获取 chat.content 数据
       history = await Chat.aggregate([
-        { $match: { _id: new mongoose.Types.ObjectId(chatId) } },
+        {
+          $match: {
+            _id: new mongoose.Types.ObjectId(chatId),
+            userId: new mongoose.Types.ObjectId(userId)
+          }
+        },
         { $unwind: '$content' },
         { $match: { 'content.deleted': false } },
         { $sort: { 'content._id': -1 } },
@@ -53,8 +58,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         modelId: modelId,
         name: model.name,
         avatar: model.avatar,
-        modelName: model.service.modelName,
-        chatModel: model.service.chatModel,
+        intro: model.share.intro,
+        chatModel: model.chat.chatModel,
         history
       }
     });

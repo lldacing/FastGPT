@@ -7,7 +7,8 @@ import { useQuery } from '@tanstack/react-query';
 
 const unAuthPage: { [key: string]: boolean } = {
   '/': true,
-  '/login': true
+  '/login': true,
+  '/model/share': true
 };
 
 const Auth = ({ children }: { children: JSX.Element }) => {
@@ -33,7 +34,9 @@ const Auth = ({ children }: { children: JSX.Element }) => {
     {
       onError(error) {
         console.log('error->', error);
-        router.replace('/login');
+        router.replace(
+          `/login?lastRoute=${encodeURIComponent(location.pathname + location.search)}`
+        );
         toast();
       },
       onSettled() {

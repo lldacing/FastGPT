@@ -1,6 +1,11 @@
 import { Schema, model, models, Model as MongoModel } from 'mongoose';
 import { ModelSchema as ModelType } from '@/types/mongoSchema';
-import { ModelVectorSearchModeMap, ModelVectorSearchModeEnum } from '@/constants/model';
+import {
+  ModelVectorSearchModeMap,
+  ModelVectorSearchModeEnum,
+  ChatModelMap,
+  ChatModelEnum
+} from '@/constants/model';
 
 const ModelSchema = new Schema({
   userId: {
@@ -14,12 +19,7 @@ const ModelSchema = new Schema({
   },
   avatar: {
     type: String,
-    default: '/imgs/modelAvatar.png'
-  },
-  systemPrompt: {
-    // 系统提示词
-    type: String,
-    default: ''
+    default: '/icon/logo.png'
   },
   status: {
     type: String,
@@ -30,29 +30,54 @@ const ModelSchema = new Schema({
     type: Date,
     default: () => new Date()
   },
-  temperature: {
-    type: Number,
-    min: 0,
-    max: 10,
-    default: 4
-  },
-  search: {
-    mode: {
+  chat: {
+    useKb: {
+      // use knowledge base to search
+      type: Boolean,
+      default: false
+    },
+    searchMode: {
+      // knowledge base search mode
       type: String,
       enum: Object.keys(ModelVectorSearchModeMap),
       default: ModelVectorSearchModeEnum.hightSimilarity
-    }
-  },
-  service: {
+    },
+    systemPrompt: {
+      // 系统提示词
+      type: String,
+      default: ''
+    },
+    temperature: {
+      type: Number,
+      min: 0,
+      max: 10,
+      default: 0
+    },
     chatModel: {
       // 聊天时使用的模型
       type: String,
-      required: true
+      enum: Object.keys(ChatModelMap),
+      default: ChatModelEnum.GPT35
+    }
+  },
+  share: {
+    isShare: {
+      type: Boolean,
+      default: false
     },
-    modelName: {
-      // 底层模型的名称
+    isShareDetail: {
+      // share model detail info. false: just show name and intro
+      type: Boolean,
+      default: false
+    },
+    intro: {
       type: String,
-      required: true
+      default: '',
+      maxlength: 150
+    },
+    collection: {
+      type: Number,
+      default: 0
     }
   },
   security: {
@@ -80,8 +105,7 @@ const ModelSchema = new Schema({
         default: -1
       }
     },
-    default: {},
-    required: true
+    default: {}
   }
 });
 
