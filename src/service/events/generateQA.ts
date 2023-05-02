@@ -75,7 +75,7 @@ export async function generateQA(next = false): Promise<any> {
       role: 'system',
       content: `你是出题人
 ${dataItem.prompt || '下面是"一段长文本"'}
-从中选出5至20个题目和答案,题目包含问答题,计算题,代码题等.答案要详细.按格式返回: Q1:
+从中选出5至20个题目和答案.答案详细.按格式返回: Q1:
 A1:
 Q2:
 A2:
@@ -106,7 +106,7 @@ A2:
           )
           .then((res) => {
             const rawContent = res?.data.choices[0].message?.content || ''; // chatgpt 原本的回复
-            const result = splitText(res?.data.choices[0].message?.content || ''); // 格式化后的QA对
+            const result = formatSplitText(res?.data.choices[0].message?.content || ''); // 格式化后的QA对
             console.log(`split result length: `, result.length);
             // 计费
             pushSplitDataBill({
@@ -190,7 +190,7 @@ A2:
 /**
  * 检查文本是否按格式返回
  */
-function splitText(text: string) {
+function formatSplitText(text: string) {
   const regex = /Q\d+:(\s*)(.*)(\s*)A\d+:(\s*)([\s\S]*?)(?=Q|$)/g; // 匹配Q和A的正则表达式
   const matches = text.matchAll(regex); // 获取所有匹配到的结果
 

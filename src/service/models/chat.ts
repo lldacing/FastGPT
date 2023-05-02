@@ -42,9 +42,9 @@ const ChatSchema = new Schema({
           type: String,
           required: true
         },
-        deleted: {
-          type: Boolean,
-          default: false
+        systemPrompt: {
+          type: String,
+          default: ''
         }
       }
     ],

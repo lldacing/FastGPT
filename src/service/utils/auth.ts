@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { Chat, Model, OpenApi, User } from '../mongo';
 import type { ModelSchema } from '@/types/mongoSchema';
 import { getOpenApiKey } from './openai';
-import type { ChatItemType } from '@/types/chat';
+import type { ChatItemSimpleType } from '@/types/chat';
 import mongoose from 'mongoose';
 import { defaultModel } from '@/constants/model';
 import { formatPrice } from '@/utils/user';
@@ -75,7 +75,7 @@ export const authModel = async ({
     };
   }
 
-  return { model };
+  return { model, showModelDetail: model.share.isShareDetail || userId === String(model.userId) };
 };
 
 // 获取对话校验
@@ -91,17 +91,28 @@ export const authChat = async ({
   const userId = await authToken(authorization);
 
   // 获取 model 数据
-  const { model } = await authModel({ modelId, userId, authOwner: false, reserveDetail: true });
+  const { model, showModelDetail } = await authModel({
+    modelId,
+    userId,
+    authOwner: false,
+    reserveDetail: true
+  });
 
   // 聊天内容
-  let content: ChatItemType[] = [];
+  let content: ChatItemSimpleType[] = [];
 
   if (chatId) {
     // 获取 chat 数据
     content = await Chat.aggregate([
       { $match: { _id: new mongoose.Types.ObjectId(chatId) } },
+      {
+        $project: {
+          content: {
+            $slice: ['$content', -50] // 返回 content 数组的最后50个元素
+          }
+        }
+      },
       { $unwind: '$content' },
-      { $match: { 'content.deleted': false } },
       {
         $project: {
           obj: '$content.obj',
@@ -110,7 +121,6 @@ export const authChat = async ({
       }
     ]);
   }
-
   // 获取 user 的 apiKey
   const { userApiKey, systemKey } = await getOpenApiKey(userId);
 
@@ -119,7 +129,8 @@ export const authChat = async ({
     systemKey,
     content,
     userId,
-    model
+    model,
+    showModelDetail
   };
 };
 

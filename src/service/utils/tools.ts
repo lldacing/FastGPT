@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { ChatItemType } from '@/types/chat';
-import { countChatTokens } from '@/utils/tools';
+import { ChatItemSimpleType } from '@/types/chat';
+import { countChatTokens, sliceTextByToken } from '@/utils/tools';
 import { ChatCompletionRequestMessageRoleEnum, ChatCompletionRequestMessage } from 'openai';
 import { ChatModelEnum } from '@/constants/model';
 
@@ -45,7 +45,7 @@ export const openaiChatFilter = ({
   maxTokens
 }: {
   model: `${ChatModelEnum}`;
-  prompts: ChatItemType[];
+  prompts: ChatItemSimpleType[];
   maxTokens: number;
 }) => {
   // role map
@@ -94,7 +94,7 @@ export const openaiChatFilter = ({
 
     /* 整体 tokens 超出范围 */
     if (tokens >= maxTokens) {
-      break;
+      return systemPrompt ? [systemPrompt, ...chats.slice(1)] : chats.slice(1);
     }
   }
 
@@ -111,18 +111,11 @@ export const systemPromptFilter = ({
   prompts: string[];
   maxTokens: number;
 }) => {
-  let splitText = '';
+  const systemPrompt = prompts.join('\n');
 
-  // 从前往前截取
-  for (let i = 0; i < prompts.length; i++) {
-    const prompt = simplifyStr(prompts[i]);
-
-    splitText += `${prompt}\n`;
-    const tokens = countChatTokens({ model, messages: [{ role: 'system', content: splitText }] });
-    if (tokens >= maxTokens) {
-      break;
-    }
-  }
-
-  return splitText.slice(0, splitText.length - 1);
+  return sliceTextByToken({
+    model,
+    text: systemPrompt,
+    length: maxTokens
+  });
 };

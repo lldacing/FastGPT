@@ -1,11 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { connectToDatabase } from '@/service/mongo';
 import { getOpenAIApi, authChat } from '@/service/utils/auth';
-import { axiosConfig, openaiChatFilter, systemPromptFilter } from '@/service/utils/tools';
-import { ChatItemType } from '@/types/chat';
+import { axiosConfig, openaiChatFilter } from '@/service/utils/tools';
+import { ChatItemSimpleType } from '@/types/chat';
 import { jsonRes } from '@/service/response';
 import { PassThrough } from 'stream';
-import { modelList, ModelVectorSearchModeMap, ModelVectorSearchModeEnum } from '@/constants/model';
+import { modelList, ModelVectorSearchModeMap } from '@/constants/model';
 import { pushChatBill } from '@/service/events/pushBill';
 import { gpt35StreamResponse } from '@/service/utils/openai';
 import { searchKb_openai } from '@/service/tools/searchKb';
@@ -28,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const { chatId, prompt, modelId } = req.body as {
-      prompt: ChatItemType;
+      prompt: ChatItemSimpleType;
       modelId: string;
       chatId: '' | string;
     };
@@ -41,7 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     await connectToDatabase();
     let startTime = Date.now();
 
-    const { model, content, userApiKey, systemKey, userId } = await authChat({
+    const { model, showModelDetail, content, userApiKey, systemKey, userId } = await authChat({
       modelId,
       chatId,
       authorization
@@ -57,68 +57,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // 使用了知识库搜索
     if (model.chat.useKb) {
-      const { systemPrompts } = await searchKb_openai({
+      const { code, searchPrompt } = await searchKb_openai({
         apiKey: userApiKey || systemKey,
         isPay: !userApiKey,
         text: prompt.value,
         similarity: ModelVectorSearchModeMap[model.chat.searchMode]?.similarity || 0.22,
-        modelId,
+        model,
         userId
       });
 
-      // filter system prompt
-      if (
-        systemPrompts.length === 0 &&
-        model.chat.searchMode === ModelVectorSearchModeEnum.hightSimilarity
-      ) {
-        return res.send('对不起，你的问题不在知识库中。');
+      // search result is empty
+      if (code === 201) {
+        return res.send(searchPrompt?.value);
       }
-      /* 高相似度+无上下文，不添加额外知识,仅用系统提示词 */
-      if (
-        systemPrompts.length === 0 &&
-        model.chat.searchMode === ModelVectorSearchModeEnum.noContext
-      ) {
-        prompts.unshift({
-          obj: 'SYSTEM',
-          value: model.chat.systemPrompt
-        });
-      } else {
-        // 有匹配情况下，system 添加知识库内容。
-        // 系统提示词过滤，最多 2500 tokens
-        const filterSystemPrompt = systemPromptFilter({
-          model: model.chat.chatModel,
-          prompts: systemPrompts,
-          maxTokens: 2500
-        });
 
-        prompts.unshift({
-          obj: 'SYSTEM',
-          value: `
-  ${model.chat.systemPrompt}
-  ${
-    model.chat.searchMode === ModelVectorSearchModeEnum.hightSimilarity
-      ? `不回答知识库外的内容.`
-      : ''
-  }
-  知识库内容为: ${filterSystemPrompt}'
-  `
-        });
-      }
+      searchPrompt && prompts.unshift(searchPrompt);
     } else {
       // 没有用知识库搜索，仅用系统提示词
-      if (model.chat.systemPrompt) {
+      model.chat.systemPrompt &&
         prompts.unshift({
           obj: 'SYSTEM',
           value: model.chat.systemPrompt
         });
-      }
     }
 
     // 控制总 tokens 数量，防止超出
     const filterPrompts = openaiChatFilter({
       model: model.chat.chatModel,
       prompts,
-      maxTokens: modelConstantsData.contextMaxToken - 500
+      maxTokens: modelConstantsData.contextMaxToken - 300
     });
 
     // 计算温度
@@ -153,7 +120,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { responseContent } = await gpt35StreamResponse({
       res,
       stream,
-      chatResponse
+      chatResponse,
+      systemPrompt:
+        showModelDetail && filterPrompts[0].role === 'system' ? filterPrompts[0].content : ''
     });
 
     // 只有使用平台的 key 才计费
