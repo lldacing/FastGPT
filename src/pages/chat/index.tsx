@@ -27,7 +27,7 @@ import {
 import { useToast } from '@/hooks/useToast';
 import { useScreen } from '@/hooks/useScreen';
 import { useQuery } from '@tanstack/react-query';
-import { ChatModelEnum } from '@/constants/model';
+import { OpenAiChatEnum } from '@/constants/model';
 import dynamic from 'next/dynamic';
 import { useGlobalStore } from '@/store/global';
 import { useCopyData } from '@/utils/tools';
@@ -69,7 +69,7 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
     name: '',
     avatar: '/icon/logo.png',
     intro: '',
-    chatModel: ChatModelEnum.GPT35,
+    chatModel: OpenAiChatEnum.GPT35,
     history: []
   }); // 聊天框整体数据
 
@@ -432,7 +432,7 @@ const Chat = ({ modelId, chatId }: { modelId: string; chatId: string }) => {
                 name={'menu'}
                 w={'20px'}
                 h={'20px'}
-                fill={useColorModeValue('blackAlpha.700', 'white')}
+                color={useColorModeValue('blackAlpha.700', 'white')}
               />
             </Box>
             <Box>{chatData?.name}</Box>

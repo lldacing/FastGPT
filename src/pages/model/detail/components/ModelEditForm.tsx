@@ -21,12 +21,12 @@ import {
 import { QuestionOutlineIcon } from '@chakra-ui/icons';
 import type { ModelSchema } from '@/types/mongoSchema';
 import { UseFormReturn } from 'react-hook-form';
-import { ChatModelMap, modelList, ModelVectorSearchModeMap } from '@/constants/model';
+import { ChatModelMap, ModelVectorSearchModeMap, chatModelList } from '@/constants/model';
 import { formatPrice } from '@/utils/user';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useSelectFile } from '@/hooks/useSelectFile';
 import { useToast } from '@/hooks/useToast';
-import { fileToBase64 } from '@/utils/file';
+import { fileToBase64, compressImg } from '@/utils/file';
 
 const ModelEditForm = ({
   formHooks,
@@ -52,17 +52,19 @@ const ModelEditForm = ({
     async (e: File[]) => {
       const file = e[0];
       if (!file) return;
+      try {
+        const base64 = await compressImg({
+          file
+        });
 
-      if (file.size > 100 * 1024) {
-        return toast({
-          title: '头像需小于 100kb',
+        setValue('avatar', base64);
+        setRefresh((state) => !state);
+      } catch (err: any) {
+        toast({
+          title: typeof err === 'string' ? err : '头像选择异常',
           status: 'warning'
         });
       }
-
-      const base64 = (await fileToBase64(file)) as string;
-      setValue('avatar', base64);
-      setRefresh((state) => !state);
     },
     [setValue, toast]
   );
@@ -110,17 +112,20 @@ const ModelEditForm = ({
           <Box flex={'0 0 80px'} w={0}>
             对话模型:
           </Box>
-          <Box>{ChatModelMap[getValues('chat.chatModel')]}</Box>
+          <Select isDisabled={!isOwner} {...register('chat.chatModel')}>
+            {chatModelList.map((item) => (
+              <option key={item.chatModel} value={item.chatModel}>
+                {item.name}
+              </option>
+            ))}
+          </Select>
         </Flex>
         <Flex alignItems={'center'} mt={5}>
           <Box flex={'0 0 80px'} w={0}>
             价格:
           </Box>
           <Box>
-            {formatPrice(
-              modelList.find((item) => item.chatModel === getValues('chat.chatModel'))?.price || 0,
-              1000
-            )}
+            {formatPrice(ChatModelMap[getValues('chat.chatModel')]?.price, 1000)}
             元/1K tokens(包括上下文和回答)
           </Box>
         </Flex>
@@ -192,6 +197,7 @@ const ModelEditForm = ({
         <Flex mt={4} alignItems={'center'}>
           <Box mr={4}>知识库搜索</Box>
           <Switch
+            isDisabled={!isOwner}
             isChecked={getValues('chat.useKb')}
             onChange={() => {
               setValue('chat.useKb', !getValues('chat.useKb'));

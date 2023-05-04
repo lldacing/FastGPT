@@ -1,34 +1,49 @@
 import type { ModelSchema } from '@/types/mongoSchema';
 
 export const embeddingModel = 'text-embedding-ada-002';
+export type EmbeddingModelType = 'text-embedding-ada-002';
 
-export enum ChatModelEnum {
+export enum OpenAiChatEnum {
   'GPT35' = 'gpt-3.5-turbo',
   'GPT4' = 'gpt-4',
   'GPT432k' = 'gpt-4-32k'
 }
-export const ChatModelMap = {
-  // ui name
-  [ChatModelEnum.GPT35]: 'ChatGpt',
-  [ChatModelEnum.GPT4]: 'Gpt4',
-  [ChatModelEnum.GPT432k]: 'Gpt4-32k'
-};
 
-export type ChatModelConstantType = {
-  chatModel: `${ChatModelEnum}`;
+export type ChatModelType = `${OpenAiChatEnum}`;
+
+export type ChatModelItemType = {
+  chatModel: ChatModelType;
+  name: string;
   contextMaxToken: number;
   maxTemperature: number;
-  price: number; // 多少钱 / 1token，单位: 0.00001元
+  price: number;
 };
 
-export const modelList: ChatModelConstantType[] = [
-  {
-    chatModel: ChatModelEnum.GPT35,
+export const ChatModelMap = {
+  [OpenAiChatEnum.GPT35]: {
+    chatModel: OpenAiChatEnum.GPT35,
+    name: 'ChatGpt',
     contextMaxToken: 4096,
     maxTemperature: 1.5,
     price: 3
+  },
+  [OpenAiChatEnum.GPT4]: {
+    chatModel: OpenAiChatEnum.GPT4,
+    name: 'Gpt4',
+    contextMaxToken: 8000,
+    maxTemperature: 1.5,
+    price: 30
+  },
+  [OpenAiChatEnum.GPT432k]: {
+    chatModel: OpenAiChatEnum.GPT432k,
+    name: 'Gpt4-32k',
+    contextMaxToken: 32000,
+    maxTemperature: 1.5,
+    price: 30
   }
-];
+};
+
+export const chatModelList: ChatModelItemType[] = [ChatModelMap[OpenAiChatEnum.GPT35]];
 
 export enum ModelStatusEnum {
   running = 'running',
@@ -106,7 +121,7 @@ export const defaultModel: ModelSchema = {
     searchMode: ModelVectorSearchModeEnum.hightSimilarity,
     systemPrompt: '',
     temperature: 0,
-    chatModel: ChatModelEnum.GPT35
+    chatModel: OpenAiChatEnum.GPT35
   },
   share: {
     isShare: false,
