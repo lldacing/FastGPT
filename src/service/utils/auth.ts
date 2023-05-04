@@ -4,15 +4,10 @@ import { Chat, Model, OpenApi, User } from '../mongo';
 import type { ModelSchema } from '@/types/mongoSchema';
 import type { ChatItemSimpleType } from '@/types/chat';
 import mongoose from 'mongoose';
-import { defaultModel } from '@/constants/model';
+import { ClaudeEnum, defaultModel } from '@/constants/model';
 import { formatPrice } from '@/utils/user';
 import { ERROR_ENUM } from '../errorCode';
-import {
-  ChatModelType,
-  OpenAiChatEnum,
-  embeddingModel,
-  EmbeddingModelType
-} from '@/constants/model';
+import { ChatModelType, OpenAiChatEnum } from '@/constants/model';
 
 /* 校验 token */
 export const authToken = (token?: string): Promise<string> => {
@@ -36,59 +31,55 @@ export const authToken = (token?: string): Promise<string> => {
 /* 获取 api 请求的 key */
 export const getApiKey = async ({
   model,
-  userId
+  userId,
+  mustPay = false
 }: {
-  model: ChatModelType | EmbeddingModelType;
+  model: ChatModelType;
   userId: string;
+  mustPay?: boolean;
 }) => {
   const user = await User.findById(userId);
   if (!user) {
-    return Promise.reject({
-      code: 501,
-      message: '找不到用户'
-    });
+    return Promise.reject(ERROR_ENUM.unAuthorization);
   }
 
   const keyMap = {
     [OpenAiChatEnum.GPT35]: {
-      userApiKey: user.openaiKey || '',
-      systemApiKey: process.env.OPENAIKEY as string
+      userOpenAiKey: user.openaiKey || '',
+      systemAuthKey: process.env.OPENAIKEY as string
     },
     [OpenAiChatEnum.GPT4]: {
-      userApiKey: user.openaiKey || '',
-      systemApiKey: process.env.OPENAIKEY as string
+      userOpenAiKey: user.openaiKey || '',
+      systemAuthKey: process.env.OPENAIKEY as string
     },
     [OpenAiChatEnum.GPT432k]: {
-      userApiKey: user.openaiKey || '',
-      systemApiKey: process.env.OPENAIKEY as string
+      userOpenAiKey: user.openaiKey || '',
+      systemAuthKey: process.env.OPENAIKEY as string
     },
-    [embeddingModel]: {
-      userApiKey: user.openaiKey || '',
-      systemApiKey: process.env.OPENAIKEY as string
+    [ClaudeEnum.Claude]: {
+      userOpenAiKey: '',
+      systemAuthKey: process.env.LAFKEY as string
     }
   };
 
   // 有自己的key
-  if (keyMap[model].userApiKey) {
+  if (!mustPay && keyMap[model].userOpenAiKey) {
     return {
       user,
-      userApiKey: keyMap[model].userApiKey,
-      systemApiKey: ''
+      userOpenAiKey: keyMap[model].userOpenAiKey,
+      systemAuthKey: ''
     };
   }
 
   // 平台账号余额校验
   if (formatPrice(user.balance) <= 0) {
-    return Promise.reject({
-      code: 501,
-      message: '账号余额不足'
-    });
+    return Promise.reject(ERROR_ENUM.unAuthorization);
   }
 
   return {
     user,
-    userApiKey: '',
-    systemApiKey: keyMap[model].systemApiKey
+    userOpenAiKey: '',
+    systemAuthKey: keyMap[model].systemAuthKey
   };
 };
 
@@ -176,11 +167,11 @@ export const authChat = async ({
     ]);
   }
   // 获取 user 的 apiKey
-  const { userApiKey, systemApiKey } = await getApiKey({ model: model.chat.chatModel, userId });
+  const { userOpenAiKey, systemAuthKey } = await getApiKey({ model: model.chat.chatModel, userId });
 
   return {
-    userApiKey,
-    systemApiKey,
+    userOpenAiKey,
+    systemAuthKey,
     content,
     userId,
     model,
@@ -203,22 +194,12 @@ export const authOpenApiKey = async (req: NextApiRequest) => {
     }
     const userId = String(openApi.userId);
 
-    // 余额校验
-    const user = await User.findById(userId);
-    if (!user) {
-      return Promise.reject(ERROR_ENUM.unAuthorization);
-    }
-    if (formatPrice(user.balance) <= 0) {
-      return Promise.reject(ERROR_ENUM.insufficientQuota);
-    }
-
     // 更新使用的时间
     await OpenApi.findByIdAndUpdate(openApi._id, {
       lastUsedTime: new Date()
     });
 
     return {
-      apiKey: process.env.OPENAIKEY as string,
       userId
     };
   } catch (error) {
